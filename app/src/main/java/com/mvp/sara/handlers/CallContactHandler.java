@@ -9,6 +9,9 @@ import android.widget.Toast;
 import com.mvp.sara.CommandHandler;
 import com.mvp.sara.CommandRegistry;
 import com.mvp.sara.FeedbackProvider;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import androidx.core.content.ContextCompat;
 
 import java.util.Arrays;
 import java.util.List;
@@ -23,6 +26,11 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
             "dial [number]"
     );
 
+    // Conversational state for confirmation
+    private static String pendingCallNumber = null;
+    private static String pendingCallName = null;
+    private static boolean awaitingCallConfirmation = false;
+
     @Override
     public boolean canHandle(String command) {
         String lowerCmd = command.toLowerCase();
@@ -33,8 +41,23 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
 
     @Override
     public void handle(Context context, String command) {
-        String contactOrNumber = "";
         String lowerCmd = command.toLowerCase();
+        // If awaiting confirmation
+        if (awaitingCallConfirmation && pendingCallNumber != null) {
+            if (lowerCmd.contains("yes") || lowerCmd.contains("call now") || lowerCmd.contains("confirm")) {
+                makeDirectCall(context, pendingCallNumber);
+                awaitingCallConfirmation = false;
+                pendingCallNumber = null;
+                pendingCallName = null;
+            } else {
+                FeedbackProvider.speakAndToast(context, "Cancelled the call.");
+                awaitingCallConfirmation = false;
+                pendingCallNumber = null;
+                pendingCallName = null;
+            }
+            return;
+        }
+        String contactOrNumber = "";
         
         if (lowerCmd.startsWith("call ")) {
             contactOrNumber = command.substring(5).trim();
@@ -49,16 +72,23 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
             return;
         }
         
-        // Check if it's a direct number
         if (contactOrNumber.matches("[\\d\\s\\+\\-\\(\\)]+")) {
-            // Looks like a number - call directly
             String cleanNumber = contactOrNumber.replaceAll("[\\s\\-\\(\\)]", "");
-            makeDirectCall(context, cleanNumber);
+            // Ask for confirmation before calling
+            pendingCallNumber = cleanNumber;
+            pendingCallName = cleanNumber;
+            awaitingCallConfirmation = true;
+            String confirmation = "Do you want to call " + cleanNumber + "?";
+            FeedbackProvider.speakAndToast(context, confirmation);
         } else {
-            // Try to look up contact
             String number = getNumberForContact(context, contactOrNumber);
             if (number != null) {
-                makeDirectCall(context, number);
+                // Ask for confirmation before calling
+                pendingCallNumber = number;
+                pendingCallName = contactOrNumber;
+                awaitingCallConfirmation = true;
+                String confirmation = "Do you want to call " + contactOrNumber + " at " + number + "?";
+                FeedbackProvider.speakAndToast(context, confirmation);
             } else {
                 FeedbackProvider.speakAndToast(context, "Contact not found: " + contactOrNumber);
             }
@@ -67,18 +97,23 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
     
     private void makeDirectCall(Context context, String number) {
         try {
-            Intent intent = new Intent(Intent.ACTION_CALL);
-            intent.setData(Uri.parse("tel:" + number));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-            FeedbackProvider.speakAndToast(context, "Calling " + number);
-        } catch (SecurityException e) {
-            // Fallback to dialer if CALL_PHONE permission not granted
-            Intent intent = new Intent(Intent.ACTION_DIAL);
-            intent.setData(Uri.parse("tel:" + number));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-            FeedbackProvider.speakAndToast(context, "Opening dialer for " + number);
+            // Check CALL_PHONE permission at runtime
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                Intent intent = new Intent(Intent.ACTION_CALL);
+                intent.setData(Uri.parse("tel:" + number));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                FeedbackProvider.speakAndToast(context, "Calling " + number);
+            } else {
+                // Permission not granted, open dialer instead
+                Intent intent = new Intent(Intent.ACTION_DIAL);
+                intent.setData(Uri.parse("tel:" + number));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+                FeedbackProvider.speakAndToast(context, "Opening dialer for " + number + ". Please grant call permission for direct calling.");
+            }
+        } catch (Exception e) {
+            FeedbackProvider.speakAndToast(context, "Sorry, I couldn't place the call.");
         }
     }
 

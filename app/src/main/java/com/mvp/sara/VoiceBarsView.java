@@ -58,13 +58,14 @@ public class VoiceBarsView extends View {
         float width = getWidth();
         float height = getHeight();
         float barWidth = width / (BAR_COUNT * 2f);
-        float gap = barWidth;
-        float maxBarHeight = height * 0.8f;
-        float baseY = (height - maxBarHeight) / 2f;
+        float verticalCenter = height / 2f;
+
         for (int i = 0; i < BAR_COUNT; i++) {
-            float x = (i * 2 + 1) * barWidth;
-            float barH = barHeights[i] * maxBarHeight;
-            canvas.drawRoundRect(x, baseY + (maxBarHeight - barH), x + barWidth, baseY + maxBarHeight, barWidth/2, barWidth/2, barPaint);
+            float x = (i * (barWidth * 2));
+            float barH = barHeights[i] * (height / 2f); // Bar height relative to center
+            float top = verticalCenter - barH;
+            float bottom = verticalCenter + barH;
+            canvas.drawRoundRect(x, top, x + barWidth, bottom, barWidth/2, barWidth/2, barPaint);
         }
     }
 } 

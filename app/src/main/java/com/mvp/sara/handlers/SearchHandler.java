@@ -69,12 +69,12 @@ public class SearchHandler implements CommandHandler, CommandRegistry.Suggestion
         searchTask = executor.submit(() -> {
             try {
                 String apiKey = BuildConfig.GEMINI_API_KEY;
-                if (apiKey == null || apiKey.isEmpty() || apiKey.equals("YOUR_API_KEY") || apiKey.equals("AIzaSyA5Czfapq60ZbIWO-5UjZVtIlHAWefHUl4")) {
+                if (apiKey == null || apiKey.isEmpty() || apiKey.equals("AIzaSyA5Czfapq60ZbIWO-5UjZVtIlHAWefHUl4") || apiKey.equals("AIzaSyA5Czfapq60ZbIWO-5UjZVtIlHAWefHUl4")) {
                     FeedbackProvider.speakAndToast(context, "The search feature is not configured. Please add your API key.");
                     return;
                 }
                 
-                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey);
+                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey);
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("POST");
                 connection.setRequestProperty("Content-Type", "application/json");

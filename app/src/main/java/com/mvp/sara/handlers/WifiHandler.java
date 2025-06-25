@@ -34,9 +34,18 @@ public class WifiHandler implements CommandHandler, CommandRegistry.SuggestionPr
             context.startActivity(panelIntent);
         } else {
             WifiManager wifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            boolean enable = command.contains("on") || command.contains("enable");
-            wifiManager.setWifiEnabled(enable);
-            FeedbackProvider.speakAndToast(context, "Wi-Fi " + (enable ? "enabled" : "disabled"));
+            String lowerCmd = command.toLowerCase();
+            boolean enable = lowerCmd.contains("on") || lowerCmd.contains("enable") || lowerCmd.contains("connect");
+            boolean disable = lowerCmd.contains("off") || lowerCmd.contains("disable") || lowerCmd.contains("disconnect");
+            if (enable && !disable) {
+                wifiManager.setWifiEnabled(true);
+                FeedbackProvider.speakAndToast(context, "Wi-Fi enabled");
+            } else if (disable && !enable) {
+                wifiManager.setWifiEnabled(false);
+                FeedbackProvider.speakAndToast(context, "Wi-Fi disabled");
+            } else {
+                FeedbackProvider.speakAndToast(context, "Please specify if you want to enable or disable Wi-Fi.");
+            }
         }
     }
 

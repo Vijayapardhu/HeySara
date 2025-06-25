@@ -76,8 +76,21 @@ public class BrightnessHandler implements CommandHandler, CommandRegistry.Sugges
                 Settings.System.putInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, maxBrightness);
                 FeedbackProvider.speakAndToast(context, "Brightness set to maximum");
             } else if (lowerCmd.contains("minimum") || lowerCmd.contains("lowest") || lowerCmd.contains("0")) {
-                Settings.System.putInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, 0);
+                Settings.System.putInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, 1);
                 FeedbackProvider.speakAndToast(context, "Brightness set to minimum");
+            } else if (lowerCmd.contains("auto brightness")) {
+                if (lowerCmd.contains("enable") || lowerCmd.contains("on")) {
+                    Settings.System.putInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC);
+                    FeedbackProvider.speakAndToast(context, "Auto-brightness enabled");
+                } else if (lowerCmd.contains("disable") || lowerCmd.contains("off")) {
+                    Settings.System.putInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+                    FeedbackProvider.speakAndToast(context, "Auto-brightness disabled");
+                } else {
+                    int mode = Settings.System.getInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+                    String status = (mode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC) ? "enabled" : "disabled";
+                    FeedbackProvider.speakAndToast(context, "Auto-brightness is currently " + status);
+                }
+                return;
             } else {
                 // Default: show current brightness
                 int percent = (currentBrightness * 100) / maxBrightness;
@@ -98,7 +111,9 @@ public class BrightnessHandler implements CommandHandler, CommandRegistry.Sugges
             "max brightness",
             "brightness minimum",
             "make it brighter",
-            "make it darker"
+            "make it darker",
+            "enable auto brightness",
+            "disable auto brightness"
         );
     }
 } 

@@ -5,11 +5,16 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.SystemClock;
+import android.util.Log;
 import android.widget.Toast;
 import com.mvp.sara.CommandHandler;
 import com.mvp.sara.CommandRegistry;
 import com.mvp.sara.FeedbackProvider;
+import com.mvp.sara.NotificationHelper;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -79,8 +84,13 @@ public class ReminderHandler implements CommandHandler, CommandRegistry.Suggesti
         @Override
         public void onReceive(Context context, Intent intent) {
             String task = intent.getStringExtra("task");
-            FeedbackProvider.init(context); // Ensure TTS is ready
-            FeedbackProvider.speakAndToast(context, "Reminder: " + task, Toast.LENGTH_LONG);
+            Log.d("ReminderHandler", "Reminder received for task: " + task);
+
+            // Show a notification
+            NotificationHelper.showReminderNotification(context, task);
+
+            // Also speak the reminder
+            FeedbackProvider.speakAndToast(context, "Reminder: " + task);
         }
     }
 

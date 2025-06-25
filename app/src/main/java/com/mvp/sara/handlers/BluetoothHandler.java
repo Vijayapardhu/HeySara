@@ -8,6 +8,10 @@ import android.provider.Settings;
 import com.mvp.sara.CommandHandler;
 import com.mvp.sara.CommandRegistry;
 import com.mvp.sara.FeedbackProvider;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import androidx.core.content.ContextCompat;
+import androidx.core.app.ActivityCompat;
 
 import java.util.Arrays;
 import java.util.List;
@@ -35,37 +39,28 @@ public class BluetoothHandler implements CommandHandler, CommandRegistry.Suggest
 
         boolean enable = command.contains("on") || command.contains("enable");
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // For Android 12+, open Bluetooth settings directly
+        try {
+            if (enable) {
+                if (!bluetoothAdapter.isEnabled()) {
+                    bluetoothAdapter.enable();
+                    FeedbackProvider.speakAndToast(context, "Bluetooth enabled.");
+                } else {
+                    FeedbackProvider.speakAndToast(context, "Bluetooth is already enabled.");
+                }
+            } else {
+                if (bluetoothAdapter.isEnabled()) {
+                    bluetoothAdapter.disable();
+                    FeedbackProvider.speakAndToast(context, "Bluetooth disabled.");
+                } else {
+                    FeedbackProvider.speakAndToast(context, "Bluetooth is already disabled.");
+                }
+            }
+        } catch (SecurityException e) {
+            // Fallback to settings if direct control fails (should not happen for system app)
             FeedbackProvider.speakAndToast(context, "Please toggle Bluetooth from settings.");
             Intent intent = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
-        } else {
-            // For older versions, try direct control
-            try {
-                if (enable) {
-                    if (!bluetoothAdapter.isEnabled()) {
-                        bluetoothAdapter.enable();
-                        FeedbackProvider.speakAndToast(context, "Bluetooth enabled.");
-                    } else {
-                        FeedbackProvider.speakAndToast(context, "Bluetooth is already enabled.");
-                    }
-                } else {
-                    if (bluetoothAdapter.isEnabled()) {
-                        bluetoothAdapter.disable();
-                        FeedbackProvider.speakAndToast(context, "Bluetooth disabled.");
-                    } else {
-                        FeedbackProvider.speakAndToast(context, "Bluetooth is already disabled.");
-                    }
-                }
-            } catch (SecurityException e) {
-                // Fallback to settings if direct control fails
-                FeedbackProvider.speakAndToast(context, "Please toggle Bluetooth from settings.");
-                Intent intent = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(intent);
-            }
         }
     }
 

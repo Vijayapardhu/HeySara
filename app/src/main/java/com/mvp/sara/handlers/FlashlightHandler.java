@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.Toast;
 import com.mvp.sara.CommandHandler;
 import com.mvp.sara.CommandRegistry;
@@ -16,8 +18,13 @@ public class FlashlightHandler implements CommandHandler, CommandRegistry.Sugges
     private static final List<String> COMMANDS = Arrays.asList(
             "turn on flashlight",
             "turn off flashlight",
-            "enable torch"
+            "enable torch",
+            "strobe the flashlight"
     );
+
+    private static Handler strobeHandler;
+    private static Runnable strobeRunnable;
+    private static boolean isStrobing = false;
 
     @Override
     public boolean canHandle(String command) {
@@ -31,14 +38,52 @@ public class FlashlightHandler implements CommandHandler, CommandRegistry.Sugges
             return;
         }
 
+        if (command.contains("strobe")) {
+            toggleStrobe(context, true);
+        } else {
+            boolean enable = command.contains("on") || command.contains("enable");
+            if (isStrobing) {
+                toggleStrobe(context, false); // Stop strobe if it's running
+            }
+            toggleTorch(context, enable);
+        }
+    }
+
+    private void toggleTorch(Context context, boolean enable) {
         CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
         try {
             String cameraId = cameraManager.getCameraIdList()[0];
-            boolean enable = command.contains("on") || command.contains("enable");
             cameraManager.setTorchMode(cameraId, enable);
-            FeedbackProvider.speakAndToast(context, "Flashlight " + (enable ? "on" : "off"));
+            if (!isStrobing) { // Avoid double feedback
+                FeedbackProvider.speakAndToast(context, "Flashlight " + (enable ? "on" : "off"));
+            }
         } catch (CameraAccessException | ArrayIndexOutOfBoundsException e) {
             FeedbackProvider.speakAndToast(context, "Could not access the flashlight.");
+        }
+    }
+
+    private void toggleStrobe(Context context, boolean start) {
+        if (start && !isStrobing) {
+            isStrobing = true;
+            FeedbackProvider.speakAndToast(context, "Starting strobe effect.");
+            strobeHandler = new Handler(Looper.getMainLooper());
+            strobeRunnable = new Runnable() {
+                private boolean torchState = false;
+                @Override
+                public void run() {
+                    torchState = !torchState;
+                    toggleTorch(context, torchState);
+                    strobeHandler.postDelayed(this, 100); // 100ms interval for strobe
+                }
+            };
+            strobeHandler.post(strobeRunnable);
+        } else if (!start && isStrobing) {
+            isStrobing = false;
+            if (strobeHandler != null) {
+                strobeHandler.removeCallbacks(strobeRunnable);
+            }
+            toggleTorch(context, false); // Ensure flashlight is turned off
+            FeedbackProvider.speakAndToast(context, "Strobe off.");
         }
     }
 

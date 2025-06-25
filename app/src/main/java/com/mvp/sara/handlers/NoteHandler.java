@@ -22,7 +22,8 @@ public class NoteHandler implements CommandHandler, CommandRegistry.SuggestionPr
 
     @Override
     public boolean canHandle(String command) {
-        return command.contains("note");
+        String lower = command.toLowerCase();
+        return lower.contains("note") || lower.contains("take a note") || lower.contains("remember");
     }
 
     @Override
@@ -42,6 +43,43 @@ public class NoteHandler implements CommandHandler, CommandRegistry.SuggestionPr
                 String allNotes = notes.stream().map(n -> (notes.indexOf(n) + 1) + ". " + n).collect(Collectors.joining(". "));
                 FeedbackProvider.speakAndToast(context, "Here are your notes: " + allNotes, Toast.LENGTH_LONG);
             }
+        } else if (command.toLowerCase().contains("delete all notes")) {
+            notes.clear();
+            FeedbackProvider.speakAndToast(context, "All notes deleted.");
+        } else if (command.toLowerCase().matches(".*delete note( number)? \\d+.*")) {
+            // Delete by number
+            String[] words = command.split(" ");
+            int num = -1;
+            for (int i = 0; i < words.length; i++) {
+                if (words[i].matches("\\d+")) {
+                    num = Integer.parseInt(words[i]);
+                    break;
+                }
+            }
+            if (num > 0 && num <= notes.size()) {
+                String removed = notes.remove(num - 1);
+                FeedbackProvider.speakAndToast(context, "Deleted note " + num + ": " + removed);
+            } else {
+                FeedbackProvider.speakAndToast(context, "Note number not found.");
+            }
+        } else if (command.toLowerCase().contains("delete note")) {
+            // Delete by content
+            String content = command.toLowerCase().replace("delete note", "").trim();
+            int idx = -1;
+            for (int i = 0; i < notes.size(); i++) {
+                if (notes.get(i).toLowerCase().contains(content)) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx != -1) {
+                String removed = notes.remove(idx);
+                FeedbackProvider.speakAndToast(context, "Deleted note: " + removed);
+            } else {
+                FeedbackProvider.speakAndToast(context, "No matching note found to delete.");
+            }
+        } else {
+            FeedbackProvider.speakAndToast(context, "Note feature coming soon! (You said: " + command + ")");
         }
     }
 

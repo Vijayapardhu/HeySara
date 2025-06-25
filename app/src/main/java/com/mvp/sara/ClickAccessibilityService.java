@@ -20,9 +20,12 @@ import android.graphics.Rect;
 import com.mvp.sara.handlers.ClickLabelHandler;
 import com.mvp.sara.handlers.TypeTextHandler;
 import com.mvp.sara.handlers.WhatsAppHandler;
+import com.mvp.sara.handlers.ReadScreenHandler;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 public class ClickAccessibilityService extends AccessibilityService {
 
@@ -84,9 +87,20 @@ public class ClickAccessibilityService extends AccessibilityService {
                 String contactName = intent.getStringExtra("contact_name");
                 String message = intent.getStringExtra("message");
                 performWhatsAppSend(contactName, message);
+            } else if (ClickLabelHandler.ACTION_TYPE_MUSIC_SEARCH.equals(intent.getAction())) {
+                String query = intent.getStringExtra(ClickLabelHandler.EXTRA_MUSIC_SEARCH);
+                if (query != null) {
+                    Log.d(TAG, "Received music search query: " + query);
+                    // Start the Amazon Music automation flow
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        performAmazonMusicSearchFlow(query);
+                    }, 2500); // Wait for app to open
+                }
             }
         }
     };
+
+    private BroadcastReceiver readScreenReceiver;
 
     @Override
     protected void onServiceConnected() {
@@ -116,7 +130,20 @@ public class ClickAccessibilityService extends AccessibilityService {
         filter.addAction(TypeTextHandler.ACTION_CUT);
         filter.addAction(TypeTextHandler.ACTION_PASTE);
         filter.addAction("com.mvp.sara.ACTION_SEND_WHATSAPP");
+        filter.addAction(ClickLabelHandler.ACTION_TYPE_MUSIC_SEARCH);
         registerReceiver(clickReceiver, filter, RECEIVER_EXPORTED);
+
+        readScreenReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (ReadScreenHandler.ACTION_READ_SCREEN.equals(intent.getAction())) {
+                    Log.d(TAG, "Read screen action received.");
+                    readScreen();
+                }
+            }
+        };
+        IntentFilter readScreenFilter = new IntentFilter(ReadScreenHandler.ACTION_READ_SCREEN);
+        registerReceiver(readScreenReceiver, readScreenFilter, RECEIVER_EXPORTED);
     }
 
     private void clickNodeWithText(String text) {
@@ -700,14 +727,189 @@ public class ClickAccessibilityService extends AccessibilityService {
         return null;
     }
 
+    private void performAmazonMusicSearchFlow(String query) {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) {
+            Log.e(TAG, "Root node is null. Cannot start Amazon Music search flow.");
+            return;
+        }
+        // 1. Click the 'Find' button
+        AccessibilityNodeInfo findButton = findNodeByDescOrText(rootNode, "find");
+        if (findButton != null && findButton.isClickable()) {
+            findButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            findButton.recycle();
+            Log.d(TAG, "Clicked 'Find' button.");
+            // 2. Wait, then click the search bar
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                clickAmazonMusicSearchBarAndType(query);
+            }, 1200);
+        } else {
+            Log.e(TAG, "Could not find 'Find' button in Amazon Music.");
+        }
+        rootNode.recycle();
+    }
+
+    private void clickAmazonMusicSearchBarAndType(String query) {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) return;
+        AccessibilityNodeInfo searchBar = findNodeByDescOrText(rootNode, "What do you want to hear?");
+        if (searchBar != null && searchBar.isClickable()) {
+            searchBar.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            searchBar.recycle();
+            Log.d(TAG, "Clicked search bar.");
+            // Wait, then type the query
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                typeInAmazonMusicSearch(query);
+            }, 800);
+        } else {
+            Log.e(TAG, "Could not find search bar in Amazon Music.");
+        }
+        rootNode.recycle();
+    }
+
+    private void typeInAmazonMusicSearch(String query) {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) return;
+        AccessibilityNodeInfo editText = findFirstEditText(rootNode);
+        if (editText != null) {
+            editText.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+            Bundle args = new Bundle();
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, query);
+            editText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            editText.recycle();
+            Log.d(TAG, "Typed song name: " + query);
+            // Wait, then press 'Done' (tick) on keyboard
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                pressKeyboardDoneButton();
+            }, 800);
+        } else {
+            Log.e(TAG, "Could not find EditText to type in Amazon Music.");
+        }
+        rootNode.recycle();
+    }
+
+    private void pressKeyboardDoneButton() {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) return;
+        AccessibilityNodeInfo doneButton = findNodeByDescOrText(rootNode, "done");
+        if (doneButton == null) {
+            // Try tick unicode (✓)
+            doneButton = findNodeByDescOrText(rootNode, "✓");
+        }
+        if (doneButton != null && doneButton.isClickable()) {
+            doneButton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            doneButton.recycle();
+            Log.d(TAG, "Pressed 'Done' button on keyboard.");
+            // Wait, then click the first song result
+            new Handler(Looper.getMainLooper()).postDelayed(this::clickFirstAmazonMusicResult, 1200);
+        } else {
+            Log.e(TAG, "Could not find 'Done' button on keyboard.");
+        }
+        rootNode.recycle();
+    }
+
+    private void clickFirstAmazonMusicResult() {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) return;
+        // Try to find the first clickable node in the results list
+        AccessibilityNodeInfo firstSong = findFirstClickableSongResult(rootNode);
+        if (firstSong != null) {
+            firstSong.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            firstSong.recycle();
+            Log.d(TAG, "Clicked first song result in Amazon Music.");
+        } else {
+            Log.e(TAG, "Could not find first song result in Amazon Music.");
+        }
+        rootNode.recycle();
+    }
+
+    private AccessibilityNodeInfo findNodeByDescOrText(AccessibilityNodeInfo node, String keyword) {
+        if (node == null) return null;
+        String lowerKeyword = keyword.toLowerCase();
+        if ((node.getContentDescription() != null && node.getContentDescription().toString().toLowerCase().contains(lowerKeyword)) ||
+            (node.getText() != null && node.getText().toString().toLowerCase().contains(lowerKeyword))) {
+            return AccessibilityNodeInfo.obtain(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = findNodeByDescOrText(node.getChild(i), keyword);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findFirstEditText(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        if ("android.widget.EditText".equals(node.getClassName())) {
+            return AccessibilityNodeInfo.obtain(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = findFirstEditText(node.getChild(i));
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findFirstClickableSongResult(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        if (node.isClickable() && node.getClassName() != null && node.getClassName().toString().toLowerCase().contains("view")) {
+            // Heuristic: clickable view in results
+            return AccessibilityNodeInfo.obtain(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo result = findFirstClickableSongResult(node.getChild(i));
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private void readScreen() {
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) {
+            FeedbackProvider.speakAndToast(this, "I can't access the screen right now.");
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        traverseNode(rootNode, sb);
+        rootNode.recycle();
+
+        if (sb.length() > 0) {
+            FeedbackProvider.speakAndToast(this, sb.toString());
+        } else {
+            FeedbackProvider.speakAndToast(this, "I couldn't find any text to read on the screen.");
+        }
+    }
+
+    private void traverseNode(AccessibilityNodeInfo node, StringBuilder sb) {
+        if (node == null) {
+            return;
+        }
+
+        if (node.getText() != null && !node.getText().toString().isEmpty()) {
+            sb.append(node.getText().toString()).append(". ");
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            traverseNode(node.getChild(i), sb);
+        }
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        if (readScreenReceiver != null) {
+            unregisterReceiver(readScreenReceiver);
+        }
+        return super.onUnbind(intent);
+    }
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
-        // Not used for this implementation
+        // This can be left as is, or used for other purposes.
     }
 
     @Override
     public void onInterrupt() {
-        // Not used
+        Log.e("AccessService", "Service interrupted.");
     }
 
     @Override

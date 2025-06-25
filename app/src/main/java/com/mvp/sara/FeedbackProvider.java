@@ -11,31 +11,43 @@ import java.util.Locale;
 public class FeedbackProvider {
 
     private static TextToSpeech tts;
-    private static boolean isInitialized = false;
+    private static boolean isTtsInitialized = false;
+    private static String pendingMessage = null;
 
-    public static void init(Context context) {
-        if (tts != null) {
-            return;
-        }
-        tts = new TextToSpeech(context.getApplicationContext(), status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                int result = tts.setLanguage(Locale.getDefault());
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e("TTS", "The specified language is not supported!");
+    private static void initializeTts(Context context, final String messageToSpeak) {
+        if (tts == null) {
+            pendingMessage = messageToSpeak;
+            tts = new TextToSpeech(context.getApplicationContext(), status -> {
+                if (status == TextToSpeech.SUCCESS) {
+                    int result = tts.setLanguage(Locale.getDefault());
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        Log.e("TTS", "The specified language is not supported!");
+                    } else {
+                        isTtsInitialized = true;
+                        Log.i("TTS", "TextToSpeech engine initialized successfully.");
+                        if (pendingMessage != null) {
+                            speak(pendingMessage);
+                            pendingMessage = null;
+                        }
+                    }
                 } else {
-                    isInitialized = true;
-                    Log.i("TTS", "TextToSpeech engine initialized.");
+                    Log.e("TTS", "TextToSpeech initialization failed!");
                 }
-            } else {
-                Log.e("TTS", "TextToSpeech initialization failed!");
-            }
-        });
+            });
+        } else if (isTtsInitialized) {
+            speak(messageToSpeak);
+        } else {
+            // TTS is initializing, queue the message
+            pendingMessage = messageToSpeak;
+        }
     }
 
     public static void speakAndToast(Context context, String message, int duration) {
-    
+        initializeTts(context, message);
+    }
 
-        if (isInitialized && tts != null) {
+    private static void speak(String message) {
+        if (isTtsInitialized && tts != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 tts.speak(message, TextToSpeech.QUEUE_ADD, null, null);
             } else {
@@ -43,7 +55,7 @@ public class FeedbackProvider {
                 tts.speak(message, TextToSpeech.QUEUE_ADD, null);
             }
         } else {
-            Log.w("TTS", "TTS not ready, cannot speak message.");
+            Log.w("TTS", "TTS not ready or null, cannot speak message.");
         }
     }
 
@@ -51,12 +63,16 @@ public class FeedbackProvider {
         speakAndToast(context, message, Toast.LENGTH_SHORT);
     }
 
-    public static void shutdown() {
+    /*public static void shutdown() {
         if (tts != null) {
             tts.stop();
             tts.shutdown();
             tts = null;
-            isInitialized = false;
+            isTtsInitialized = false;
+            pendingMessage = null;
         }
     }
-} 
+}
+
+     */
+}

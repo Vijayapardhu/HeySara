@@ -14,6 +14,9 @@ public class ClickLabelHandler implements CommandHandler, CommandRegistry.Sugges
 
     public static final String ACTION_CLICK_LABEL = "com.mvp.sara.ACTION_CLICK_LABEL";
     public static final String EXTRA_LABEL = "com.mvp.sara.EXTRA_LABEL";
+    public static final String ACTION_PLAY_PAUSE_CENTER = "com.mvp.sara.ACTION_PLAY_PAUSE_CENTER";
+    public static final String ACTION_TYPE_MUSIC_SEARCH = "com.mvp.sara.ACTION_TYPE_MUSIC_SEARCH";
+    public static final String EXTRA_MUSIC_SEARCH = "com.mvp.sara.EXTRA_MUSIC_SEARCH";
 
     private static final List<String> COMMANDS = Arrays.asList(
             "click on",
@@ -55,6 +58,13 @@ public class ClickLabelHandler implements CommandHandler, CommandRegistry.Sugges
             labelToClick = "scroll";
         } else if (lowerCmd.equals("scroll up")) {
             labelToClick = "scroll_up";
+        } else if (lowerCmd.equals("play") || lowerCmd.equals("pause") || lowerCmd.equals("play/pause") || lowerCmd.equals("play pause")) {
+            // Special case: tap center for play/pause
+            android.util.Log.d("ClickLabelHandler", "Recognized play/pause command, sending ACTION_PLAY_PAUSE_CENTER");
+            Intent intent = new Intent(ACTION_PLAY_PAUSE_CENTER);
+            context.sendBroadcast(intent);
+            FeedbackProvider.speakAndToast(context, "Tapping center of the screen for play/pause.");
+            return;
         } else {
             for (String prefix : COMMANDS) {
                 if (lowerCmd.startsWith(prefix + " ")) {

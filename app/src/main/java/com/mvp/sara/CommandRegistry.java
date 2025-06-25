@@ -4,8 +4,15 @@ import android.content.Context;
 import android.util.Log;
 import android.widget.Toast;
 import com.mvp.sara.handlers.CallAnswerHandler;
+import com.mvp.sara.handlers.NoteHandler;
+import com.mvp.sara.handlers.ReminderHandler;
+import com.mvp.sara.handlers.AlarmHandler;
+import com.mvp.sara.handlers.DoNotDisturbHandler;
+import com.mvp.sara.handlers.PlayMusicHandler;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class CommandRegistry {
     private static final List<CommandHandler> handlers = new ArrayList<>();
@@ -84,5 +91,22 @@ public class CommandRegistry {
     // Interface for handlers to provide suggestions
     public interface SuggestionProvider {
         List<String> getSuggestions();
+    }
+
+    public static void init(Context context) {
+        if (!handlers.isEmpty()) {
+            return; // Already initialized
+        }
+        
+        // Register your handlers here
+        register(new NoteHandler());
+        register(new ReminderHandler());
+        register(new PlayMusicHandler());
+        
+        AlarmHandler alarmHandler = new AlarmHandler();
+        register(alarmHandler);
+
+        register(new DoNotDisturbHandler());
+        register(new CallAnswerHandler());
     }
 } 

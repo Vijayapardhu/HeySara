@@ -47,13 +47,32 @@ import com.mvp.sara.handlers.PaymentHandler;
 import com.mvp.sara.handlers.SearchHandler;
 import android.text.TextUtils;
 import android.view.View;
+import android.util.Log;
+import com.mvp.sara.handlers.RingerModeHandler;
+import com.mvp.sara.handlers.NavigationHandler;
+import com.mvp.sara.handlers.TimerHandler;
+import com.mvp.sara.handlers.CalculatorHandler;
+import com.mvp.sara.handlers.JokeHandler;
+import com.mvp.sara.handlers.SmsReaderHandler;
+import com.mvp.sara.handlers.LocationHandler;
+import com.mvp.sara.handlers.ScreenshotHandler;
+import com.mvp.sara.handlers.OpenWebsiteHandler;
+import com.mvp.sara.handlers.NewsHandler;
+import com.mvp.sara.handlers.DictionaryHandler;
+import com.mvp.sara.handlers.MusicControlHandler;
+import com.mvp.sara.handlers.HelpHandler;
+import com.mvp.sara.handlers.EmailHandler;
+import com.mvp.sara.handlers.StopwatchHandler;
+import com.mvp.sara.handlers.RandomUtilityHandler;
+import com.mvp.sara.handlers.ReadScreenHandler;
+import com.mvp.sara.handlers.TranslateHandler;
+import com.mvp.sara.handlers.ImageAnalysisHandler;
+import com.mvp.sara.handlers.CameraTranslateHandler;
+import com.mvp.sara.handlers.ChitChatHandler;
 
 public class MainActivity extends AppCompatActivity {
 
-    private Button btnStartSara;
     private Button btnEnableAccessibility;
-    private static final int PERMISSIONS_REQUEST_CODE = 123;
-    private boolean isServiceRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -119,6 +138,20 @@ public class MainActivity extends AppCompatActivity {
                     new String[]{Manifest.permission.SEND_SMS}, 8);
         }
 
+        // Request read SMS permission if not granted
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_SMS}, 9);
+        }
+
+        // Request location permissions if not granted
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 10);
+        }
+
         // Check and request overlay permission
         if (!Settings.canDrawOverlays(this)) {
             android.widget.Toast.makeText(this, "Please grant overlay permission for Sara to work over other apps", android.widget.Toast.LENGTH_LONG).show();
@@ -138,8 +171,8 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // Initialize button
-        btnStartSara = findViewById(R.id.btn_call_sara);
         btnEnableAccessibility = findViewById(R.id.btn_enable_accessibility);
+        findViewById(R.id.btn_call_sara).setVisibility(View.GONE); // Hide the old button
 
         // Register command handlers
         CommandRegistry.register(new OpenAppHandler());
@@ -156,6 +189,29 @@ public class MainActivity extends AppCompatActivity {
         CommandRegistry.register(new TakePhotoHandler());
         CommandRegistry.register(new SendSmsHandler());
         CommandRegistry.register(new ReminderHandler());
+        CommandRegistry.register(new RingerModeHandler());
+        CommandRegistry.register(new WeatherHandler());
+        CommandRegistry.register(new NavigationHandler());
+        CommandRegistry.register(new TimerHandler());
+        CommandRegistry.register(new CalculatorHandler());
+        CommandRegistry.register(new DeviceInfoHandler());
+        CommandRegistry.register(new JokeHandler());
+        CommandRegistry.register(new SmsReaderHandler());
+        CommandRegistry.register(new LocationHandler());
+        CommandRegistry.register(new ScreenshotHandler());
+        CommandRegistry.register(new OpenWebsiteHandler());
+        CommandRegistry.register(new NewsHandler());
+        CommandRegistry.register(new DictionaryHandler());
+        CommandRegistry.register(new MusicControlHandler());
+        CommandRegistry.register(new HelpHandler());
+        CommandRegistry.register(new EmailHandler());
+        CommandRegistry.register(new StopwatchHandler());
+        CommandRegistry.register(new RandomUtilityHandler());
+        CommandRegistry.register(new ReadScreenHandler());
+        CommandRegistry.register(new TranslateHandler());
+        CommandRegistry.register(new ImageAnalysisHandler());
+        CommandRegistry.register(new CameraTranslateHandler());
+        CommandRegistry.register(new ChitChatHandler());
         
         // New Productivity Handlers
         CommandRegistry.register(new AlarmHandler());
@@ -169,58 +225,40 @@ public class MainActivity extends AppCompatActivity {
         CommandRegistry.register(new SearchHandler());
         
         // Stubs
-        // CommandRegistry.register(new CalendarHandler());
-        // CommandRegistry.register(new WeatherHandler());
-        // CommandRegistry.register(new DeviceInfoHandler());
+        CommandRegistry.register(new CalendarHandler());
+        CommandRegistry.register(new DeviceInfoHandler());
         
-        // Initialize the TextToSpeech engine
-        FeedbackProvider.init(this);
-
-        // Button to manually start/stop service
-        btnStartSara.setOnClickListener(v -> {
-            if (!isServiceRunning) {
-                startForegroundService(new Intent(MainActivity.this, SaraVoiceService.class));
-                startService(new Intent(MainActivity.this, CallDetectionService.class));
-                btnStartSara.setText("Stop Sara");
-                android.widget.Toast.makeText(MainActivity.this, "Sara is now listening!", android.widget.Toast.LENGTH_SHORT).show();
-            } else {
-                stopService(new Intent(MainActivity.this, SaraVoiceService.class));
-                stopService(new Intent(MainActivity.this, CallDetectionService.class));
-                btnStartSara.setText("Call Sara");
-                android.widget.Toast.makeText(MainActivity.this, "Sara has been stopped.", android.widget.Toast.LENGTH_SHORT).show();
-            }
-            isServiceRunning = !isServiceRunning;
-        });
-
         btnEnableAccessibility.setOnClickListener(v -> {
             Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
             startActivity(intent);
         });
+
+        // If all permissions are in place, start the service directly
+        if (isAccessibilityServiceEnabled()) {
+            startAssistantService();
+        }
+    }
+
+    private void startAssistantService() {
+        Log.d("MainActivity", "Starting assistant service and finishing activity.");
+        Intent serviceIntent = new Intent(this, SaraVoiceService.class);
+        serviceIntent.setAction("com.mvp.sara.ACTION_START_COMMAND_LISTENING");
+        startForegroundService(serviceIntent);
+        finish();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Update button state based on whether the service is running
-        isServiceRunning = isServiceRunning(SaraVoiceService.class);
-        btnStartSara.setText(isServiceRunning ? "Stop Sara" : "Call Sara");
-
         // Check for accessibility service
         if (isAccessibilityServiceEnabled()) {
             btnEnableAccessibility.setVisibility(View.GONE);
+            // If the service got enabled while the app was in background,
+            // start the assistant now.
+            startAssistantService();
         } else {
             btnEnableAccessibility.setVisibility(View.VISIBLE);
         }
-    }
-
-    private boolean isServiceRunning(Class<?> serviceClass) {
-        android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        for (android.app.ActivityManager.RunningServiceInfo service : manager.getRunningServices(Integer.MAX_VALUE)) {
-            if (serviceClass.getName().equals(service.service.getClassName())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean isAccessibilityServiceEnabled() {
@@ -241,7 +279,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        FeedbackProvider.shutdown();
+       // FeedbackProvider.shutdown();
     }
 
     @Override
@@ -311,6 +349,34 @@ public class MainActivity extends AppCompatActivity {
                 // Permission denied, show a message
                 android.widget.Toast.makeText(this, "Send SMS permission is required for Sara to send messages", android.widget.Toast.LENGTH_LONG).show();
             }
+        } else if (requestCode == 9) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // READ_SMS permission granted
+                android.util.Log.d("MainActivity", "READ_SMS permission granted");
+            } else {
+                // Permission denied, show a message
+                android.widget.Toast.makeText(this, "Read SMS permission is required for Sara to read messages", android.widget.Toast.LENGTH_LONG).show();
+            }
+        } else if (requestCode == 10) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Location permission granted
+                android.util.Log.d("MainActivity", "Location permission granted");
+            } else {
+                // Permission denied, show a message
+                android.widget.Toast.makeText(this, "Location permission is required to find out where you are", android.widget.Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (Intent.ACTION_ASSIST.equals(intent.getAction())) {
+            // Start the voice service and overlay
+            Intent serviceIntent = new Intent(this, SaraVoiceService.class);
+            serviceIntent.setAction("com.mvp.sara.ACTION_START_COMMAND_LISTENING");
+            androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent);
+            finish(); // Close MainActivity so only overlay is visible
         }
     }
 }

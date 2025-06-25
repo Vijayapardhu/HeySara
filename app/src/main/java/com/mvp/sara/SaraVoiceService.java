@@ -38,6 +38,8 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -49,8 +51,9 @@ import java.util.ArrayList;
 
 import com.mvp.sara.handlers.SearchHandler;
 
-public class SaraVoiceService extends Service {
+public class SaraVoiceService extends Service implements AudioManager.OnAudioFocusChangeListener {
     public static final String ACTION_COMMAND_FINISHED = "com.mvp.sara.ACTION_COMMAND_FINISHED";
+    public static final String ACTION_CLOSE_ASSISTANT_UI = "com.mvp.sara.ACTION_CLOSE_ASSISTANT_UI";
     private static final String CHANNEL_ID = "sara_voice_channel";
     private static final int NOTIF_ID = 1001;
 
@@ -66,6 +69,17 @@ public class SaraVoiceService extends Service {
     private BroadcastReceiver searchStopButtonReceiver;
     private WindowManager stopWindowManager;
     private View stopOverlayView;
+    private BroadcastReceiver screenOnReceiver;
+    private View bubbleOverlayView;
+    private WindowManager bubbleWindowManager;
+    private SpeechRecognizer bubbleRecognizer;
+    private boolean isBubbleListening = false;
+    private ObjectAnimator glowPulseAnimator;
+    private ObjectAnimator bubblePulseAnimator;
+    private BroadcastReceiver closeUIReciever;
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private BroadcastReceiver interruptReceiver;
 
     private final PorcupineManagerCallback porcupineManagerCallback = new PorcupineManagerCallback() {
         @Override
@@ -90,34 +104,49 @@ public class SaraVoiceService extends Service {
     public void onCreate() {
         super.onCreate();
         handler = new Handler(Looper.getMainLooper());
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         createNotificationChannel();
         startForeground(NOTIF_ID, buildNotification());
         startPorcupineListening();
         setupCallListeningReceiver();
         setupSearchStopButtonReceiver();
+        setupCloseUIReciever();
+        setupInterruptReceiver();
     }
 
     private void startPorcupineListening() {
+        // Request audio focus
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setOnAudioFocusChangeListener(this)
+                .build();
+            audioManager.requestAudioFocus(audioFocusRequest);
+        } else {
+            audioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+        }
+        
         try {
-            porcupineManager = new PorcupineManager.Builder()
-                    .setAccessKey(PICOVOICE_ACCESS_KEY)
-                    .setKeywordPath("keywords/sara_android.ppn")
-                    .build(getApplicationContext(), porcupineManagerCallback);
-
+            if (porcupineManager == null) {
+                 porcupineManager = new PorcupineManager.Builder()
+                        .setAccessKey(PICOVOICE_ACCESS_KEY)
+                        .setKeywordPath("keywords/sara_android.ppn")
+                        .build(getApplicationContext(), porcupineManagerCallback);
+            }
             porcupineManager.start();
             Log.d("Porcupine", "Porcupine started listening...");
-        } catch (PorcupineInvalidArgumentException e) {
-            Log.e("Porcupine", "Porcupine Invalid Argument: " + e.getMessage());
-        } catch (PorcupineActivationException e) {
-            Log.e("Porcupine", "AccessKey activation error");
-        } catch (PorcupineActivationLimitException e) {
-            Log.e("Porcupine", "AccessKey reached its device limit");
-        } catch (PorcupineActivationRefusedException e) {
-            Log.e("Porcupine", "AccessKey refused");
-        } catch (PorcupineActivationThrottledException e) {
-            Log.e("Porcupine", "AccessKey has been throttled");
         } catch (PorcupineException e) {
-            Log.e("Porcupine", "Failed to initialize Porcupine: " + e.getMessage());
+            Log.e("Porcupine", "Failed to initialize or start Porcupine: " + e.getMessage());
+        }
+    }
+
+    private void stopPorcupineListening() {
+        if (porcupineManager != null) {
+            try {
+                porcupineManager.stop();
+                Log.d("Porcupine", "Porcupine stopped listening due to audio focus loss.");
+            } catch (PorcupineException e) {
+                Log.e("Porcupine", "Failed to stop Porcupine: " + e.getMessage());
+            }
         }
     }
 
@@ -144,11 +173,10 @@ public class SaraVoiceService extends Service {
         PowerManager.WakeLock wakeLock = powerManager.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK, "sara:WakeLock");
         wakeLock.acquire(3000);
-
-        createOverlayWindow();
+        showBubbleOverlayAndListen();
     }
 
-    private void createOverlayWindow() {
+    private void showBubbleOverlayAndListen() {
         if (!Settings.canDrawOverlays(this)) {
             Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
             intent.setData(android.net.Uri.parse("package:" + getPackageName()));
@@ -156,10 +184,9 @@ public class SaraVoiceService extends Service {
             startActivity(intent);
             return;
         }
-
-        WindowManager windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        bubbleWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         LayoutInflater inflater = LayoutInflater.from(this);
-        View overlayView = inflater.inflate(R.layout.dialog_voice_popup, null);
+        bubbleOverlayView = inflater.inflate(R.layout.assistant_bubble, null);
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -174,46 +201,72 @@ public class SaraVoiceService extends Service {
                 PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        params.y = 150; // Pixels from bottom
+        params.y = 100;
 
-        windowManager.addView(overlayView, params);
+        bubbleWindowManager.addView(bubbleOverlayView, params);
 
-        startCommandListening(overlayView, windowManager, params);
+        // UI references
+        View bubbleContainer = bubbleOverlayView.findViewById(R.id.bubble_container);
+        View glowEffect = bubbleOverlayView.findViewById(R.id.glow_effect);
+        com.mvp.sara.VoiceBarsView voiceLines = bubbleOverlayView.findViewById(R.id.voice_lines);
+
+        // Start listening and animate
+        startBubbleListening(bubbleContainer, glowEffect, voiceLines);
     }
 
-    private void startCommandListening(View overlayView, WindowManager windowManager, WindowManager.LayoutParams params) {
-        VoiceBarsView barsView = overlayView.findViewById(R.id.voice_bars);
-        View circleContainer = overlayView.findViewById(R.id.voice_circle_container);
+    private void startBubbleListening(View bubbleContainer, View glowEffect, com.mvp.sara.VoiceBarsView voiceLines) {
+        isBubbleListening = true;
 
-        startOverlayAnimations(circleContainer, barsView);
+        // Shrinking pulse for the main bubble
+        bubblePulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
+                bubbleContainer,
+                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 0.9f, 1f),
+                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 0.9f, 1f)
+        );
+        bubblePulseAnimator.setDuration(1500);
+        bubblePulseAnimator.setRepeatCount(ObjectAnimator.INFINITE);
+        bubblePulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+        bubblePulseAnimator.start();
 
-        SpeechRecognizer commandRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        // Slow pulse for the background glow
+        glowPulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
+                glowEffect,
+                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f, 1f),
+                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f, 1f),
+                PropertyValuesHolder.ofFloat(View.ALPHA, 0.7f, 1f, 0.7f)
+        );
+        glowPulseAnimator.setDuration(2000);
+        glowPulseAnimator.setRepeatCount(ObjectAnimator.INFINITE);
+        glowPulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+        glowPulseAnimator.start();
+
+        // Show and animate voice lines
+        voiceLines.setVisibility(View.VISIBLE);
+        voiceLines.startBarsAnimation();
+
+        if (bubbleRecognizer != null) {
+            bubbleRecognizer.destroy();
+        }
+        bubbleRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-
-        commandRecognizer.setRecognitionListener(new RecognitionListener() {
+        bubbleRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override
-            public void onReadyForSpeech(Bundle params) {
-                Log.d("SaraVoiceService", "Ready for command");
-            }
+            public void onReadyForSpeech(Bundle params) {}
             @Override
-            public void onBeginningOfSpeech() {
-                Log.d("SaraVoiceService", "Beginning of command");
-            }
+            public void onBeginningOfSpeech() {}
             @Override
             public void onRmsChanged(float rmsdB) {}
             @Override
             public void onBufferReceived(byte[] buffer) {}
             @Override
-            public void onEndOfSpeech() {
-                Log.d("SaraVoiceService", "End of command");
-            }
+            public void onEndOfSpeech() {}
             @Override
             public void onError(int error) {
-                String errorMessage = getErrorText(error);
-                Log.e("SaraVoiceService", "Command recognition error: " + errorMessage);
-                FeedbackProvider.speakAndToast(SaraVoiceService.this, "Error: " + errorMessage, Toast.LENGTH_LONG);
-                removeOverlay(windowManager, overlayView, commandRecognizer);
+                Log.e("SaraVoiceService", "Bubble recognition error: " + getErrorText(error));
+                if (bubbleOverlayView != null) {
+                    bubbleOverlayView.postDelayed(() -> removeBubbleOverlay(), 200);
+                }
             }
             @Override
             public void onResults(Bundle results) {
@@ -222,52 +275,49 @@ public class SaraVoiceService extends Service {
                     String command = matches.get(0).toLowerCase();
                     Log.d("SaraVoiceService", "Recognized command: " + command);
                     if (!CommandRegistry.handleCommand(SaraVoiceService.this, command)) {
-                        Log.d("SaraVoiceService", "No handler matched for: " + command);
-                        FeedbackProvider.speakAndToast(SaraVoiceService.this, "Command not recognized", Toast.LENGTH_SHORT);
+                        Log.w("SaraVoiceService", "No handler for command: " + command);
+                        // No visual feedback for unrecognized command, as requested.
                     }
-                } else {
-                    Log.d("SaraVoiceService", "No command recognized");
-                    FeedbackProvider.speakAndToast(SaraVoiceService.this, "Didn't catch that. Please try again!", Toast.LENGTH_SHORT);
                 }
-                removeOverlay(windowManager, overlayView, commandRecognizer);
+                if (bubbleOverlayView != null) {
+                    bubbleOverlayView.postDelayed(() -> removeBubbleOverlay(), 200);
+                }
             }
             @Override
             public void onPartialResults(Bundle partialResults) {}
             @Override
             public void onEvent(int eventType, Bundle params) {}
         });
-
-        commandRecognizer.startListening(intent);
-        Log.d("SaraVoiceService", "Command recognizer started in overlay");
+        bubbleRecognizer.startListening(intent);
     }
 
-    private void startOverlayAnimations(View circleContainer, VoiceBarsView barsView) {
-        ObjectAnimator scaleAnim = ObjectAnimator.ofPropertyValuesHolder(
-                circleContainer,
-                PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.1f),
-                PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.1f)
-        );
-        scaleAnim.setDuration(600);
-        scaleAnim.setRepeatCount(ObjectAnimator.INFINITE);
-        scaleAnim.setRepeatMode(ObjectAnimator.REVERSE);
-        scaleAnim.start();
-
-        barsView.startBarsAnimation();
-    }
-
-    private void removeOverlay(WindowManager windowManager, View overlayView, SpeechRecognizer recognizer) {
+    private void removeBubbleOverlay() {
         try {
-            if (recognizer != null) {
-                recognizer.destroy();
+            if (glowPulseAnimator != null) {
+                glowPulseAnimator.cancel();
+                glowPulseAnimator = null;
             }
-            if (windowManager != null && overlayView != null) {
-                windowManager.removeView(overlayView);
+            if (bubblePulseAnimator != null) {
+                bubblePulseAnimator.cancel();
+                bubblePulseAnimator = null;
+            }
+            if (bubbleRecognizer != null) {
+                bubbleRecognizer.destroy();
+                bubbleRecognizer = null;
+            }
+            if (bubbleOverlayView != null) {
+                com.mvp.sara.VoiceBarsView voiceLines = bubbleOverlayView.findViewById(R.id.voice_lines);
+                if (voiceLines != null) voiceLines.stopBarsAnimation();
+            }
+            if (bubbleWindowManager != null && bubbleOverlayView != null) {
+                bubbleWindowManager.removeView(bubbleOverlayView);
+                bubbleOverlayView = null;
             }
         } catch (Exception e) {
-            Log.e("SaraVoiceService", "Error removing overlay: " + e.getMessage());
+            Log.e("SaraVoiceService", "Error removing bubble overlay: " + e.getMessage());
         }
-
-        // Restart Porcupine listening after the command is processed
+        isBubbleListening = false;
+        // Resume Porcupine listening
         isPausedForCommand = false;
         try {
             porcupineManager.start();
@@ -296,7 +346,25 @@ public class SaraVoiceService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_NOT_STICKY;
+        if (intent != null && "com.mvp.sara.ACTION_START_COMMAND_LISTENING".equals(intent.getAction())) {
+            Log.d("SaraVoiceService", "Received ACTION_START_COMMAND_LISTENING");
+            if (isPausedForCommand) {
+                 Log.d("SaraVoiceService", "Already in a listening state, ignoring.");
+                 return START_STICKY;
+            }
+
+            isPausedForCommand = true;
+            if (porcupineManager != null) {
+                try {
+                    porcupineManager.stop();
+                    Log.d("Porcupine", "Porcupine stopped for direct command listening.");
+                } catch (PorcupineException e) {
+                    Log.e("Porcupine", "Failed to stop porcupine for command listening: " + e.getMessage());
+                }
+            }
+            wakeScreenAndNotify();
+        }
+        return super.onStartCommand(intent, flags, startId);
     }
 
     @Override
@@ -304,12 +372,23 @@ public class SaraVoiceService extends Service {
         super.onDestroy();
         isShuttingDown = true;
         
+        // Abandon audio focus
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (audioManager != null && audioFocusRequest != null) {
+                audioManager.abandonAudioFocusRequest(audioFocusRequest);
+            }
+        } else {
+            if (audioManager != null) {
+                audioManager.abandonAudioFocus(this);
+            }
+        }
+        
         if (porcupineManager != null) {
             try {
                 porcupineManager.stop();
                 porcupineManager.delete();
             } catch (PorcupineException e) {
-                Log.e("Porcupine", "Failed to stop porcupine: " + e.getMessage());
+                Log.e("Porcupine", "Failed to stop/delete porcupine: " + e.getMessage());
             }
         }
         
@@ -327,6 +406,15 @@ public class SaraVoiceService extends Service {
                 Log.w("SaraVoiceService", "Error unregistering search stop button receiver: " + e.getMessage());
             }
         }
+        if (screenOnReceiver != null) {
+            unregisterReceiver(screenOnReceiver);
+        }
+        if (closeUIReciever != null) {
+            unregisterReceiver(closeUIReciever);
+        }
+        if (interruptReceiver != null) {
+            unregisterReceiver(interruptReceiver);
+        }
     }
 
     @Nullable
@@ -340,19 +428,19 @@ public class SaraVoiceService extends Service {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
-                if ("com.mvp.sara.START_CALL_LISTENING".equals(action)) {
-                    startCallListeningMode(intent.getStringExtra("phone_number"), 
-                                         intent.getStringExtra("caller_name"));
-                } else if ("com.mvp.sara.STOP_CALL_LISTENING".equals(action)) {
+                if ("com.mvp.sara.ACTION_START_CALL_LISTENING".equals(action)) {
+                    String number = intent.getStringExtra("number");
+                    String name = intent.getStringExtra("name");
+                    startCallListeningMode(number, name);
+                } else if ("com.mvp.sara.ACTION_STOP_CALL_LISTENING".equals(action)) {
                     stopCallListeningMode();
                 }
             }
         };
-        
         IntentFilter filter = new IntentFilter();
-        filter.addAction("com.mvp.sara.START_CALL_LISTENING");
-        filter.addAction("com.mvp.sara.STOP_CALL_LISTENING");
-        registerReceiver(callListeningReceiver, filter, Context.RECEIVER_EXPORTED);
+        filter.addAction("com.mvp.sara.ACTION_START_CALL_LISTENING");
+        filter.addAction("com.mvp.sara.ACTION_STOP_CALL_LISTENING");
+        registerReceiver(callListeningReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
     }
     
     private void startCallListeningMode(String phoneNumber, String callerName) {
@@ -395,17 +483,11 @@ public class SaraVoiceService extends Service {
         searchStopButtonReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if (SearchHandler.ACTION_SHOW_STOP_BUTTON.equals(intent.getAction())) {
-                    showStopButtonOverlay();
-                } else if (SearchHandler.ACTION_HIDE_STOP_BUTTON.equals(intent.getAction())) {
-                    hideStopButtonOverlay();
-                }
+                hideStopButtonOverlay();
             }
         };
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(SearchHandler.ACTION_SHOW_STOP_BUTTON);
-        filter.addAction(SearchHandler.ACTION_HIDE_STOP_BUTTON);
-        registerReceiver(searchStopButtonReceiver, filter, Context.RECEIVER_EXPORTED);
+        IntentFilter filter = new IntentFilter(SearchHandler.ACTION_STOP_SEARCH);
+        registerReceiver(searchStopButtonReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
     }
 
     private void showStopButtonOverlay() {
@@ -451,6 +533,72 @@ public class SaraVoiceService extends Service {
             }
             stopOverlayView = null;
             stopWindowManager = null;
+        }
+    }
+
+    private void setupCloseUIReciever() {
+        closeUIReciever = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                removeBubbleOverlay();
+                hideStopButtonOverlay();
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_CLOSE_ASSISTANT_UI);
+        registerReceiver(closeUIReciever, filter, Context.RECEIVER_NOT_EXPORTED);
+    }
+
+    private void setupInterruptReceiver() {
+        interruptReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                if ("com.mvp.sara.ACTION_INTERRUPT".equals(action)) {
+                    stopAllAssistantActions();
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter("com.mvp.sara.ACTION_INTERRUPT");
+        registerReceiver(interruptReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+    }
+
+    private void stopAllAssistantActions() {
+        // Stop speech recognition
+        if (bubbleRecognizer != null) {
+            bubbleRecognizer.cancel();
+            bubbleRecognizer.destroy();
+            bubbleRecognizer = null;
+        }
+        // Remove overlays
+        removeBubbleOverlay();
+        hideStopButtonOverlay();
+        // Reset state
+        isPausedForCommand = false;
+        // Provide feedback
+        handler.post(() -> Toast.makeText(this, "Okay, I've stopped.", Toast.LENGTH_SHORT).show());
+        // Optionally, speak feedback
+        FeedbackProvider.speakAndToast(this, "Okay, I've stopped.");
+        // Resume Porcupine listening
+        try {
+            if (porcupineManager != null) porcupineManager.start();
+        } catch (PorcupineException e) {
+            Log.e("Porcupine", "Failed to restart porcupine: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onAudioFocusChange(int focusChange) {
+        switch (focusChange) {
+            case AudioManager.AUDIOFOCUS_GAIN:
+                Log.d("AudioFocus", "Gained audio focus, starting Porcupine.");
+                startPorcupineListening();
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS:
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                Log.d("AudioFocus", "Lost audio focus, stopping Porcupine.");
+                stopPorcupineListening();
+                break;
         }
     }
 }

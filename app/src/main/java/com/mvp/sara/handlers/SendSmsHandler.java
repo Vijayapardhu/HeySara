@@ -24,6 +24,12 @@ public class SendSmsHandler implements CommandHandler, CommandRegistry.Suggestio
         "send a text to [contact/number] saying [message]"
     );
 
+    // Conversational state for confirmation
+    private static String pendingNumber = null;
+    private static String pendingContactName = null;
+    private static String pendingMessage = null;
+    private static boolean awaitingConfirmation = false;
+
     @Override
     public boolean canHandle(String command) {
         String lowerCmd = command.toLowerCase(Locale.ROOT);
@@ -37,6 +43,23 @@ public class SendSmsHandler implements CommandHandler, CommandRegistry.Suggestio
     @Override
     public void handle(Context context, String command) {
         String lowerCmd = command.toLowerCase(Locale.ROOT);
+        // If awaiting confirmation
+        if (awaitingConfirmation && pendingNumber != null && pendingMessage != null) {
+            if (lowerCmd.contains("yes") || lowerCmd.contains("send it") || lowerCmd.contains("confirm")) {
+                sendSmsDirectly(context, pendingNumber, pendingMessage, pendingContactName);
+                awaitingConfirmation = false;
+                pendingNumber = null;
+                pendingContactName = null;
+                pendingMessage = null;
+            } else {
+                FeedbackProvider.speakAndToast(context, "Cancelled sending the message.");
+                awaitingConfirmation = false;
+                pendingNumber = null;
+                pendingContactName = null;
+                pendingMessage = null;
+            }
+            return;
+        }
         String recipient = "";
         String message = "";
         
@@ -98,12 +121,13 @@ public class SendSmsHandler implements CommandHandler, CommandRegistry.Suggestio
             contactName = number; // Use number as name for display
         }
         
-        // Confirm before sending
-        String confirmation = "Sending message to " + contactName + ": " + message;
+        // Ask for confirmation before sending
+        pendingNumber = number;
+        pendingContactName = contactName;
+        pendingMessage = message;
+        awaitingConfirmation = true;
+        String confirmation = "Do you want to send this message to " + contactName + ": " + message + "?";
         FeedbackProvider.speakAndToast(context, confirmation);
-        
-        // Send the SMS directly
-        sendSmsDirectly(context, number, message, contactName);
     }
     
     private void sendSmsDirectly(Context context, String number, String message, String contactName) {
