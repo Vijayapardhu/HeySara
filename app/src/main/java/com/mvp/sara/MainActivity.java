@@ -223,6 +223,7 @@ public class MainActivity extends AppCompatActivity {
         CommandRegistry.register(new WhatsAppHandler());
         CommandRegistry.register(new PaymentHandler());
         CommandRegistry.register(new SearchHandler());
+        CommandRegistry.register(new WifiHandler());
         
         // Stubs
         CommandRegistry.register(new CalendarHandler());

@@ -57,6 +57,10 @@ public class ClickAccessibilityService extends AccessibilityService {
                 } else {
                     Log.w(TAG, "Received broadcast but label was null or empty");
                 }
+            }
+            else if ("com.mvp.sara.ACTION_PERFORM_BACK".equals(intent.getAction())) {
+                Log.d(TAG, "Received ACTION_PERFORM_BACK broadcast");
+                performBackAction();
             } else if ("com.mvp.sara.ACTION_ANSWER_CALL".equals(intent.getAction())) {
                 Log.d(TAG, "About to answer call");
                 answerCall();
@@ -95,6 +99,7 @@ public class ClickAccessibilityService extends AccessibilityService {
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         performAmazonMusicSearchFlow(query);
                     }, 2500); // Wait for app to open
+
                 }
             }
         }

@@ -41,6 +41,14 @@ public class FeedbackProvider {
             pendingMessage = messageToSpeak;
         }
     }
+    
+    public static void shutdown() {
+        if (tts != null) {
+            tts.shutdown();
+            tts = null;
+            isTtsInitialized = false;
+        }
+    }
 
     public static void speakAndToast(Context context, String message, int duration) {
         initializeTts(context, message);

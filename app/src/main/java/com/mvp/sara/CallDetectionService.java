@@ -34,13 +34,34 @@ public class CallDetectionService extends Service {
         telephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
         setupPhoneStateListener();
     }
+    // ... existing code ...
+    private void pauseAudioServices() {
+        // Pause SaraVoiceService's wake word detection and TTS
+        Log.d(TAG, "Pausing audio services (SaraVoiceService and TTS)");
+        // Tell SaraVoiceService to stop listening and pause TTS
+        Intent intent = new Intent("com.mvp.sara.ACTION_STOP_CALL_LISTENING");
+        sendBroadcast(intent);
+        // Optionally, stop TTS if needed
+        try {
+            com.mvp.sara.FeedbackProvider.shutdown();
+        } catch (Exception e) {
+            Log.w(TAG, "Error shutting down TTS: " + e.getMessage());
+        }
+    }
 
+    private void resumeAudioServices() {
+        // Resume SaraVoiceService's wake word detection
+        Log.d(TAG, "Resuming audio services (SaraVoiceService)");
+        Intent intent = new Intent("com.mvp.sara.ACTION_START_CALL_LISTENING");
+        sendBroadcast(intent);
+        // Optionally, re-initialize TTS if needed (will auto-init on next speak)
+    }
     private void setupPhoneStateListener() {
         phoneStateListener = new PhoneStateListener() {
             @Override
             public void onCallStateChanged(int state, String phoneNumber) {
                 Log.d(TAG, "Call state changed: " + state + ", number: " + phoneNumber);
-                
+    
                 switch (state) {
                     case TelephonyManager.CALL_STATE_RINGING:
                         if (!isCallAnnounced && phoneNumber != null) {
@@ -52,17 +73,19 @@ public class CallDetectionService extends Service {
                         isCallAnnounced = false;
                         currentCallerNumber = null;
                         currentCallerName = null;
+                        pauseAudioServices();
                         break;
                     case TelephonyManager.CALL_STATE_IDLE:
                         // Call ended or was rejected
                         isCallAnnounced = false;
                         currentCallerNumber = null;
                         currentCallerName = null;
+                        resumeAudioServices();
                         break;
                 }
             }
         };
-        
+    
         telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
     }
 

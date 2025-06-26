@@ -9,6 +9,7 @@ import com.mvp.sara.handlers.ReminderHandler;
 import com.mvp.sara.handlers.AlarmHandler;
 import com.mvp.sara.handlers.DoNotDisturbHandler;
 import com.mvp.sara.handlers.PlayMusicHandler;
+import com.mvp.sara.handlers.BluetoothHandler;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -102,7 +103,7 @@ public class CommandRegistry {
         register(new NoteHandler());
         register(new ReminderHandler());
         register(new PlayMusicHandler());
-        
+        register(new BluetoothHandler());
         AlarmHandler alarmHandler = new AlarmHandler();
         register(alarmHandler);
 
