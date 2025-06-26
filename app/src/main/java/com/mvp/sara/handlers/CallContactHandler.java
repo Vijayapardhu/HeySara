@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.database.Cursor;
 import android.provider.ContactsContract;
-import android.widget.Toast;
 import com.mvp.sara.CommandHandler;
 import com.mvp.sara.CommandRegistry;
 import com.mvp.sara.FeedbackProvider;
@@ -26,11 +25,6 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
             "dial [number]"
     );
 
-    // Conversational state for confirmation
-    private static String pendingCallNumber = null;
-    private static String pendingCallName = null;
-    private static boolean awaitingCallConfirmation = false;
-
     @Override
     public boolean canHandle(String command) {
         String lowerCmd = command.toLowerCase();
@@ -42,23 +36,9 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
     @Override
     public void handle(Context context, String command) {
         String lowerCmd = command.toLowerCase();
-        // If awaiting confirmation
-        if (awaitingCallConfirmation && pendingCallNumber != null) {
-            if (lowerCmd.contains("yes") || lowerCmd.contains("call now") || lowerCmd.contains("confirm")) {
-                makeDirectCall(context, pendingCallNumber);
-                awaitingCallConfirmation = false;
-                pendingCallNumber = null;
-                pendingCallName = null;
-            } else {
-                FeedbackProvider.speakAndToast(context, "Cancelled the call.");
-                awaitingCallConfirmation = false;
-                pendingCallNumber = null;
-                pendingCallName = null;
-            }
-            return;
-        }
+
+        // Parse the contact or number
         String contactOrNumber = "";
-        
         if (lowerCmd.startsWith("call ")) {
             contactOrNumber = command.substring(5).trim();
         } else if (lowerCmd.startsWith("make a call to ")) {
@@ -66,36 +46,26 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
         } else if (lowerCmd.startsWith("dial ")) {
             contactOrNumber = command.substring(5).trim();
         }
-        
+
         if (contactOrNumber.isEmpty()) {
             FeedbackProvider.speakAndToast(context, "Please specify who to call");
             return;
         }
-        
+
         if (contactOrNumber.matches("[\\d\\s\\+\\-\\(\\)]+")) {
             String cleanNumber = contactOrNumber.replaceAll("[\\s\\-\\(\\)]", "");
-            // Ask for confirmation before calling
-            pendingCallNumber = cleanNumber;
-            pendingCallName = cleanNumber;
-            awaitingCallConfirmation = true;
-            String confirmation = "Do you want to call " + cleanNumber + "?";
-            FeedbackProvider.speakAndToast(context, confirmation);
+            makeDirectCall(context, cleanNumber);
         } else {
             String number = getNumberForContact(context, contactOrNumber);
             if (number != null) {
-                // Ask for confirmation before calling
-                pendingCallNumber = number;
-                pendingCallName = contactOrNumber;
-                awaitingCallConfirmation = true;
-                String confirmation = "Do you want to call " + contactOrNumber + " at " + number + "?";
-                FeedbackProvider.speakAndToast(context, confirmation);
+                makeDirectCall(context, number);
             } else {
                 FeedbackProvider.speakAndToast(context, "Contact not found: " + contactOrNumber);
             }
         }
     }
-    
-    private void makeDirectCall(Context context, String number) {
+
+    private static void makeDirectCall(Context context, String number) {
         try {
             // Check CALL_PHONE permission at runtime
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
@@ -141,4 +111,4 @@ public class CallContactHandler implements CommandHandler, CommandRegistry.Sugge
     public List<String> getSuggestions() {
         return COMMANDS;
     }
-} 
+}
