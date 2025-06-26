@@ -31,7 +31,7 @@ public class ChitChatHandler implements CommandHandler, CommandRegistry.Suggesti
         if (lowerCmd.contains("who are you") || lowerCmd.contains("what's your name")) {
             response = "I am Sara, your personal voice assistant.";
         } else if (lowerCmd.contains("who made you") || lowerCmd.contains("who created you")) {
-            response = "I was created by a talented developer, with a little help from my friends at Google and Picovoice.";
+            response = "I was created by a group of aditya polytechnic college students ";
         } else {
             response = "That's an interesting question.";
         }

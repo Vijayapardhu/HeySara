@@ -88,6 +88,13 @@
             android:name=".CameraAnalysisActivity"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:exported="false" />
+        <activity
+            android:name=".FindPhoneActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:showWhenLocked="true" />
         
         <service android:name=".ScreenshotService" android:foregroundServiceType="mediaProjection" android:exported="false" />
         <service android:name=".GeminiAnalysisService" />

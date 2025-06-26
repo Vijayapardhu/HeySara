@@ -44,6 +44,7 @@ import com.mvp.sara.handlers.CallAnswerHandler;
 import com.mvp.sara.handlers.TypeTextHandler;
 import com.mvp.sara.handlers.WhatsAppHandler;
 import com.mvp.sara.handlers.PaymentHandler;
+import com.mvp.sara.handlers.FindPhoneHandler;
 import com.mvp.sara.handlers.SearchHandler;
 import android.text.TextUtils;
 import android.view.View;
@@ -175,6 +176,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_call_sara).setVisibility(View.GONE); // Hide the old button
 
         // Register command handlers
+        CommandRegistry.register(new FindPhoneHandler());
         CommandRegistry.register(new OpenAppHandler());
         CommandRegistry.register(new CallContactHandler());
         CommandRegistry.register(new PlayMusicHandler());
@@ -212,8 +214,6 @@ public class MainActivity extends AppCompatActivity {
         CommandRegistry.register(new ImageAnalysisHandler());
         CommandRegistry.register(new CameraTranslateHandler());
         CommandRegistry.register(new ChitChatHandler());
-        
-        // New Productivity Handlers
         CommandRegistry.register(new AlarmHandler());
         CommandRegistry.register(new BatteryHandler());
         CommandRegistry.register(new NoteHandler());
