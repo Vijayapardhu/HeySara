@@ -96,6 +96,8 @@
             android:turnScreenOn="true"
             android:showWhenLocked="true" />
         
+        <activity android:name=".CameraXCaptureActivity" />
+        
         <service android:name=".ScreenshotService" android:foregroundServiceType="mediaProjection" android:exported="false" />
         <service android:name=".GeminiAnalysisService" />
         <service android:name=".CameraTranslateService" />
@@ -136,6 +138,12 @@
             android:name=".AlarmActionReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <receiver android:name=".CallCommandReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="com.mvp.sara.CALL_COMMAND"/>
+            </intent-filter>
+        </receiver>
 
     </application>
 

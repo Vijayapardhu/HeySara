@@ -27,7 +27,7 @@ public class CameraTranslateHandler implements CommandHandler, CommandRegistry.S
     @Override
     public void handle(Context context, String command) {
         Matcher matcher = LANG_PATTERN.matcher(command);
-        String targetLang = "es"; // Default to Spanish
+        String targetLang = "en"; // Default to Spanish
         if (matcher.find()) {
             targetLang = matcher.group(1);
         }

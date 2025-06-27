@@ -96,16 +96,19 @@ public class ScreenshotService extends Service {
     private void saveBitmap(Bitmap bitmap) {
         try {
             String fileName = "screenshot_" + System.currentTimeMillis() + ".png";
-            File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-            File imageFile = new File(picturesDir, fileName);
-            
+            File directory = new File(Environment.getExternalStorageDirectory() + "/SaraScreenshots");
+            if (!directory.exists()) {
+                directory.mkdirs();
+            }
+            File imageFile = new File(directory, fileName);
+
             FileOutputStream fos = new FileOutputStream(imageFile);
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
             fos.flush();
             fos.close();
 
             MediaStore.Images.Media.insertImage(getContentResolver(), imageFile.getAbsolutePath(), fileName, "Screenshot taken by Sara");
-            handler.post(() -> Toast.makeText(this, "Screenshot saved to gallery.", Toast.LENGTH_SHORT).show());
+            handler.post(() -> Toast.makeText(this, "Screenshot saved to SaraScreenshots.", Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
             e.printStackTrace();
             handler.post(() -> Toast.makeText(this, "Failed to save screenshot.", Toast.LENGTH_SHORT).show());

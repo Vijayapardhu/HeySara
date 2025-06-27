@@ -17,6 +17,9 @@ import java.util.Locale;
 public class OpenCameraHandler implements CommandHandler, CommandRegistry.SuggestionProvider {
     private static final String TAG = "OpenCameraHandler";
     private static String currentCameraId = "0"; // Default to back camera
+    private static int switchButtonX = -1;
+    private static int switchButtonY = -1;
+    private static boolean learningSwitchButton = false;
     
     @Override
     public boolean canHandle(String command) {
@@ -24,15 +27,28 @@ public class OpenCameraHandler implements CommandHandler, CommandRegistry.Sugges
         return lowerCmd.contains("camera") || 
                lowerCmd.contains("switch camera") || 
                lowerCmd.contains("front camera") || 
-               lowerCmd.contains("back camera");
+               lowerCmd.contains("back camera") ||
+               lowerCmd.contains("learn switch button");
     }
 
     @Override
     public void handle(Context context, String command) {
         String lowerCmd = command.toLowerCase(Locale.ROOT);
-        
+        if (lowerCmd.contains("learn switch button")) {
+            learningSwitchButton = true;
+            FeedbackProvider.speakAndToast(context, "Touch the switch camera button in the camera app now.");
+            return;
+        }
         if (lowerCmd.contains("switch camera") || lowerCmd.contains("front camera") || lowerCmd.contains("back camera")) {
-            switchCamera(context);
+            if (switchButtonX != -1 && switchButtonY != -1) {
+                Intent clickIntent = new Intent("com.mvp.sara.ACTION_CLICK_POINT");
+                clickIntent.putExtra("x", switchButtonX);
+                clickIntent.putExtra("y", switchButtonY);
+                context.sendBroadcast(clickIntent);
+                FeedbackProvider.speakAndToast(context, "Switching camera...");
+            } else {
+                FeedbackProvider.speakAndToast(context, "Switch button location not set. Say 'learn switch button' and touch the button in the camera app.");
+            }
         } else if (lowerCmd.contains("camera")) {
             openCamera(context);
         }
@@ -148,5 +164,16 @@ public class OpenCameraHandler implements CommandHandler, CommandRegistry.Sugges
             "front camera",
             "back camera"
         );
+    }
+
+    // Add a method to be called from AccessibilityService to store the coordinates
+    public static void setSwitchButtonCoordinates(int x, int y) {
+        switchButtonX = x;
+        switchButtonY = y;
+        learningSwitchButton = false;
+    }
+
+    public static boolean isLearningSwitchButton() {
+        return learningSwitchButton;
     }
 } 

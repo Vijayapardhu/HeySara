@@ -68,6 +68,7 @@ import com.mvp.sara.handlers.RandomUtilityHandler;
 import com.mvp.sara.handlers.ReadScreenHandler;
 import com.mvp.sara.handlers.TranslateHandler;
 import com.mvp.sara.handlers.ImageAnalysisHandler;
+import com.mvp.sara.handlers.BluetoothHandler;
 import com.mvp.sara.handlers.CameraTranslateHandler;
 import com.mvp.sara.handlers.ChitChatHandler;
 
@@ -224,6 +225,8 @@ public class MainActivity extends AppCompatActivity {
         CommandRegistry.register(new PaymentHandler());
         CommandRegistry.register(new SearchHandler());
         CommandRegistry.register(new WifiHandler());
+        CommandRegistry.register(new BluetoothHandler());
+
         
         // Stubs
         CommandRegistry.register(new CalendarHandler());

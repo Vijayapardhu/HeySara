@@ -54,17 +54,32 @@ public class BrightnessHandler implements CommandHandler, CommandRegistry.Sugges
                 int percent = (newBrightness * 100) / maxBrightness;
                 FeedbackProvider.speakAndToast(context, "Brightness decreased to " + percent + "%");
             } else if (lowerCmd.contains("set") || lowerCmd.contains("to")) {
-                // Extract percentage from command
+                // Improved: Extract percentage from command (handles 'percent', '%', and numbers before them)
                 String[] words = command.split("\\s+");
                 int percent = -1;
-                
-                for (String word : words) {
+                for (int i = 0; i < words.length; i++) {
+                    String word = words[i].replaceAll("[^0-9%]", "");
+                    if (word.endsWith("%")) {
+                        word = word.replace("%", "");
+                    }
                     if (word.matches("\\d+")) {
-                        percent = Integer.parseInt(word);
-                        break;
+                        // Check if next word is 'percent' or contains '%'
+                        boolean isPercent = (i + 1 < words.length && (words[i + 1].toLowerCase().contains("percent") || words[i + 1].contains("%"))) || words[i].contains("%") || words[i].toLowerCase().contains("percent");
+                        if (isPercent || percent == -1) {
+                            percent = Integer.parseInt(word);
+                            break;
+                        }
                     }
                 }
-                
+                // Fallback: look for any number if not found
+                if (percent == -1) {
+                    for (String word : words) {
+                        if (word.matches("\\d+")) {
+                            percent = Integer.parseInt(word);
+                            break;
+                        }
+                    }
+                }
                 if (percent >= 0 && percent <= 100) {
                     int newBrightness = (maxBrightness * percent) / 100;
                     Settings.System.putInt(context.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, newBrightness);

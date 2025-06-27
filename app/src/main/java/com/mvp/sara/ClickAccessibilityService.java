@@ -106,6 +106,7 @@ public class ClickAccessibilityService extends AccessibilityService {
     };
 
     private BroadcastReceiver readScreenReceiver;
+    private BroadcastReceiver clickPointReceiver;
 
     @Override
     protected void onServiceConnected() {
@@ -149,6 +150,22 @@ public class ClickAccessibilityService extends AccessibilityService {
         };
         IntentFilter readScreenFilter = new IntentFilter(ReadScreenHandler.ACTION_READ_SCREEN);
         registerReceiver(readScreenReceiver, readScreenFilter, RECEIVER_EXPORTED);
+
+        // Register for custom click point
+        clickPointReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if ("com.mvp.sara.ACTION_CLICK_POINT".equals(intent.getAction())) {
+                    int x = intent.getIntExtra("x", -1);
+                    int y = intent.getIntExtra("y", -1);
+                    if (x != -1 && y != -1) {
+                        performTapAtPosition(x, y);
+                    }
+                }
+            }
+        };
+        IntentFilter clickPointFilter = new IntentFilter("com.mvp.sara.ACTION_CLICK_POINT");
+        registerReceiver(clickPointReceiver, clickPointFilter, RECEIVER_EXPORTED);
     }
 
     private void clickNodeWithText(String text) {
@@ -901,9 +918,8 @@ public class ClickAccessibilityService extends AccessibilityService {
 
     @Override
     public boolean onUnbind(Intent intent) {
-        if (readScreenReceiver != null) {
-            unregisterReceiver(readScreenReceiver);
-        }
+        if (clickPointReceiver != null) unregisterReceiver(clickPointReceiver);
+        if (readScreenReceiver != null) unregisterReceiver(readScreenReceiver);
         return super.onUnbind(intent);
     }
 
@@ -921,5 +937,24 @@ public class ClickAccessibilityService extends AccessibilityService {
     public void onDestroy() {
         super.onDestroy();
         unregisterReceiver(clickReceiver);
+    }
+
+    // Intercept touch events to learn the switch button location
+    @Override
+    public boolean onGesture(int gestureId) {
+        // Not used, but required to override
+        return super.onGesture(gestureId);
+    }
+
+    @Override
+    public boolean onTouchEvent(android.view.MotionEvent event) {
+        if (OpenCameraHandler.isLearningSwitchButton() && event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+            int x = (int) event.getRawX();
+            int y = (int) event.getRawY();
+            OpenCameraHandler.setSwitchButtonCoordinates(x, y);
+            FeedbackProvider.speakAndToast(this, "Switch button location saved.");
+            return true;
+        }
+        return super.onTouchEvent(event);
     }
 } 

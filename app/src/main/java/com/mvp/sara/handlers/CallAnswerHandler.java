@@ -14,46 +14,35 @@ public class CallAnswerHandler implements CommandHandler, CommandRegistry.Sugges
     @Override
     public boolean canHandle(String command) {
         String lowerCmd = command.toLowerCase(Locale.ROOT);
-        boolean canHandle = lowerCmd.contains("answer") || 
-               lowerCmd.contains("reject") ||
-               lowerCmd.contains("decline") ||
-               lowerCmd.contains("accept") ||
-               lowerCmd.contains("pick up") ||
-               lowerCmd.contains("hang up") ||
-               lowerCmd.equals("no");
-        
-        android.util.Log.d("CallAnswerHandler", "canHandle called with: '" + command + "' (lowercase: '" + lowerCmd + "') - result: " + canHandle);
-        return canHandle;
+        // Accept more variants and ignore punctuation
+        lowerCmd = lowerCmd.replaceAll("[!?.]", "").trim();
+        return lowerCmd.matches(".*\\b(answer|accept|pick up|yes|reject|decline|hang up|no|ignore|dismiss)\\b.*");
     }
 
     @Override
     public void handle(Context context, String command) {
         String lowerCmd = command.toLowerCase(Locale.ROOT);
+        lowerCmd = lowerCmd.replaceAll("[!?.]", "").trim();
         android.util.Log.d("CallAnswerHandler", "handle called with: '" + command + "' (lowercase: '" + lowerCmd + "')");
-        
-        String action = "";
-        
-        if (lowerCmd.contains("answer") || lowerCmd.contains("accept") || lowerCmd.contains("pick up")) {
+
+        String action = null;
+        if (lowerCmd.matches(".*\\b(answer|accept|pick up|yes)\\b.*")) {
             action = "answer";
             android.util.Log.d("CallAnswerHandler", "Detected ANSWER command");
-        } else if (lowerCmd.contains("reject") || lowerCmd.contains("decline") || lowerCmd.contains("hang up") || lowerCmd.equals("no")) {
+        } else if (lowerCmd.matches(".*\\b(reject|decline|hang up|no|ignore|dismiss)\\b.*")) {
             action = "reject";
             android.util.Log.d("CallAnswerHandler", "Detected REJECT command");
-        } else {
-            android.util.Log.w("CallAnswerHandler", "No action detected for command: '" + command + "'");
         }
-        
-        if (!action.isEmpty()) {
+
+        if (action != null) {
             android.util.Log.d("CallAnswerHandler", "Sending call command: " + action);
-            
-            // Send broadcast to CallDetectionService
             Intent intent = new Intent("com.mvp.sara.CALL_COMMAND");
             intent.putExtra("command", action);
             context.sendBroadcast(intent);
-            
             FeedbackProvider.speakAndToast(context, action.equals("answer") ? "Answering call" : "Rejecting call");
         } else {
             android.util.Log.w("CallAnswerHandler", "No action to send for command: '" + command + "'");
+            FeedbackProvider.speakAndToast(context, "Sorry, I didn't understand. Please say 'answer' or 'reject'.");
         }
     }
     
