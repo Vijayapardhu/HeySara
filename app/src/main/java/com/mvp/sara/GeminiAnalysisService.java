@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.IBinder;
+import android.util.Base64;
 import android.util.Log;
 import com.google.ai.client.generativeai.GenerativeModel;
 import com.google.ai.client.generativeai.java.GenerativeModelFutures;
@@ -13,8 +14,16 @@ import com.google.ai.client.generativeai.type.GenerateContentResponse;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -44,29 +53,96 @@ public class GeminiAnalysisService extends Service {
     }
 
     private void analyzeBitmap(Bitmap bitmap) {
-        GenerativeModel gm = new GenerativeModel("gemini-pro-vision", GEMINI_API_KEY);
-        GenerativeModelFutures model = GenerativeModelFutures.from(gm);
-
-        Content content = new Content.Builder()
-                .addImage(bitmap)
-                .addText("Describe this image in detail.")
-                .build();
-
-        ListenableFuture<GenerateContentResponse> response = model.generateContent(content);
-        Futures.addCallback(response, new FutureCallback<GenerateContentResponse>() {
-            @Override
-            public void onSuccess(GenerateContentResponse result) {
-                String description = result.getText();
-                FeedbackProvider.speakAndToast(GeminiAnalysisService.this, description);
-                stopSelf();
-            }
-            @Override
-            public void onFailure(Throwable t) {
-                Log.e("GeminiService", "Error generating content", t);
+        executor.execute(() -> {
+            try {
+                GeminiResult result = GeminiImageHelper.analyzeImage(bitmap, "Describe this image? Respond with one or two sentences only.", GEMINI_API_KEY);
+                runOnUiThread(() -> {
+                    if (result.text != null) {
+                        FeedbackProvider.speakAndToast(GeminiAnalysisService.this, result.text);
+                    }
+                    // Optionally handle result.image (generated image)
+                    stopSelf();
+                });
+            } catch (Exception e) {
+                Log.e("GeminiService", "Error generating content", e);
                 FeedbackProvider.speakAndToast(GeminiAnalysisService.this, "Sorry, I couldn't analyze the image.");
                 stopSelf();
             }
-        }, executor);
+        });
+    }
+
+    private void runOnUiThread(Runnable runnable) {
+        android.os.Handler handler = new android.os.Handler(getMainLooper());
+        handler.post(runnable);
+    }
+
+    public static class GeminiResult {
+        public String text;
+        public Bitmap image;
+    }
+
+    public static class GeminiImageHelper {
+        public static GeminiResult analyzeImage(Bitmap bitmap, String prompt, String apiKey) throws Exception {
+            // Convert Bitmap to base64
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, baos);
+            byte[] imageBytes = baos.toByteArray();
+            String base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP);
+
+            // Build JSON request
+            String jsonInputString = "{" +
+                    "\"contents\":[{" +
+                    "  \"parts\":[{" +
+                    "    \"inline_data\": {" +
+                    "      \"mime_type\": \"image/jpeg\"," +
+                    "      \"data\": \"" + base64Image + "\"" +
+                    "    }" +
+                    "  },{" +
+                    "    \"text\": \"" + prompt + "\"" +
+                    "  }]" +
+                    "}]," +
+                    "}";
+
+            // Send HTTP POST
+            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setDoOutput(true);
+
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(jsonInputString.getBytes("utf-8"));
+            }
+
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream(), "utf-8"))) {
+                String responseLine;
+                while ((responseLine = br.readLine()) != null) {
+                    response.append(responseLine.trim());
+                }
+            }
+
+            // Parse response
+            JSONObject jsonResponse = new JSONObject(response.toString());
+            JSONArray parts = jsonResponse.getJSONArray("candidates")
+                    .getJSONObject(0).getJSONObject("content")
+                    .getJSONArray("parts");
+
+            GeminiResult result = new GeminiResult();
+            for (int i = 0; i < parts.length(); i++) {
+                JSONObject part = parts.getJSONObject(i);
+                if (part.has("text")) {
+                    result.text = part.getString("text");
+                } else if (part.has("inline_data")) {
+                    JSONObject inlineData = part.getJSONObject("inline_data");
+                    if (inlineData.has("data")) {
+                        byte[] imgBytes = Base64.decode(inlineData.getString("data"), Base64.DEFAULT);
+                        result.image = BitmapFactory.decodeByteArray(imgBytes, 0, imgBytes.length);
+                    }
+                }
+            }
+            return result;
+        }
     }
 
     @Override

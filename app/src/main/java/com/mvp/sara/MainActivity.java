@@ -71,10 +71,27 @@ import com.mvp.sara.handlers.ImageAnalysisHandler;
 import com.mvp.sara.handlers.BluetoothHandler;
 import com.mvp.sara.handlers.CameraTranslateHandler;
 import com.mvp.sara.handlers.ChitChatHandler;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import android.net.Uri;
+import android.widget.ImageView;
+import com.mvp.sara.handlers.FileShareHelper;
+import android.app.Activity;
+import android.widget.Toast;
+
+import com.mvp.sara.handlers.ShareFileHandler;
+import com.mvp.sara.handlers.WikipediaHandler;
+
+import java.util.ArrayList;
 
 public class MainActivity extends AppCompatActivity {
 
     private Button btnEnableAccessibility;
+    private FileShareHelper fileShareHelper;
+    private ActivityResultLauncher<Intent> filePickerLauncher;
+    private Uri lastFileUri;
+    private String lastFileName;
+    private boolean isFileSharingFlow = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -226,6 +243,7 @@ public class MainActivity extends AppCompatActivity {
         CommandRegistry.register(new SearchHandler());
         CommandRegistry.register(new WifiHandler());
         CommandRegistry.register(new BluetoothHandler());
+        CommandRegistry.register(new WikipediaHandler());
 
         
         // Stubs
@@ -237,9 +255,34 @@ public class MainActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
-        // If all permissions are in place, start the service directly
-        if (isAccessibilityServiceEnabled()) {
-            startAssistantService();
+        // File sharing setup
+        fileShareHelper = new FileShareHelper();
+        filePickerLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    isFileSharingFlow = true; // Stay in file sharing mode
+                    fileShareHelper.handleFilePickerResult(this, result.getData());
+                    startFileShareService();
+                } else {
+                    isFileSharingFlow = false; // Reset if cancelled
+                }
+            }
+        );
+
+        // Register ShareFileHandler and set callback
+        ShareFileHandler.setCallback(() -> fileShareHelper.pickFiles(this, filePickerLauncher));
+        CommandRegistry.register(new ShareFileHandler());
+
+        // Only auto-finish if not handling a share file intent or file sharing flow
+        boolean isShareFileIntent = getIntent().getBooleanExtra("share_file", false);
+        if (!isShareFileIntent && !isFileSharingFlow) {
+            if (isAccessibilityServiceEnabled()) {
+                btnEnableAccessibility.setVisibility(View.GONE);
+                startAssistantService();
+            } else {
+                btnEnableAccessibility.setVisibility(View.VISIBLE);
+            }
         }
     }
 
@@ -254,14 +297,15 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // Check for accessibility service
-        if (isAccessibilityServiceEnabled()) {
-            btnEnableAccessibility.setVisibility(View.GONE);
-            // If the service got enabled while the app was in background,
-            // start the assistant now.
-            startAssistantService();
-        } else {
-            btnEnableAccessibility.setVisibility(View.VISIBLE);
+        handleShareFileIntent(getIntent());
+        boolean isShareFileIntent = getIntent().getBooleanExtra("share_file", false);
+        if (!isShareFileIntent && !isFileSharingFlow) {
+            if (isAccessibilityServiceEnabled()) {
+                btnEnableAccessibility.setVisibility(View.GONE);
+                startAssistantService();
+            } else {
+                btnEnableAccessibility.setVisibility(View.VISIBLE);
+            }
         }
     }
 
@@ -284,6 +328,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
        // FeedbackProvider.shutdown();
+        if (fileShareHelper != null) fileShareHelper.stopServer();
     }
 
     @Override
@@ -375,12 +420,44 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        handleShareFileIntent(intent);
         if (Intent.ACTION_ASSIST.equals(intent.getAction())) {
             // Start the voice service and overlay
             Intent serviceIntent = new Intent(this, SaraVoiceService.class);
             serviceIntent.setAction("com.mvp.sara.ACTION_START_COMMAND_LISTENING");
             androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent);
             finish(); // Close MainActivity so only overlay is visible
+        }
+    }
+
+    private void startFileShareService() {
+        ArrayList<Uri> uris = fileShareHelper.getFileUris();
+        ArrayList<String> names = fileShareHelper.getFileNames();
+        if (uris.isEmpty() || names.isEmpty() || uris.size() != names.size()) {
+            Toast.makeText(this, "No files to share.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        ArrayList<String> uriStrings = new ArrayList<>();
+        for (Uri uri : uris) uriStrings.add(uri.toString());
+        Intent serviceIntent = new Intent(this, FileShareService.class);
+        serviceIntent.setAction(FileShareService.ACTION_START);
+        serviceIntent.putStringArrayListExtra(FileShareService.EXTRA_URIS, uriStrings);
+        serviceIntent.putStringArrayListExtra(FileShareService.EXTRA_NAMES, names);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+        // Optionally show a QR code in the UI, or just rely on the notification
+        Toast.makeText(this, "File sharing started in background. Check notification.", Toast.LENGTH_LONG).show();
+    }
+
+    private void handleShareFileIntent(Intent intent) {
+        if (intent != null && intent.getBooleanExtra("share_file", false)) {
+            // Reset the flag so it doesn't trigger again
+            intent.removeExtra("share_file");
+            isFileSharingFlow = true;
+            fileShareHelper.pickFiles(this, filePickerLauncher);
         }
     }
 }

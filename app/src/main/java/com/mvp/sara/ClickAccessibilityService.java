@@ -18,6 +18,7 @@ import android.graphics.Path;
 import android.graphics.Rect;
 
 import com.mvp.sara.handlers.ClickLabelHandler;
+import com.mvp.sara.handlers.OpenCameraHandler;
 import com.mvp.sara.handlers.TypeTextHandler;
 import com.mvp.sara.handlers.WhatsAppHandler;
 import com.mvp.sara.handlers.ReadScreenHandler;
@@ -46,10 +47,16 @@ public class ClickAccessibilityService extends AccessibilityService {
                         performScrollUp();
                     } else if (label.equalsIgnoreCase("like")) {
                         Log.d(TAG, "About to perform double-tap for like");
-                        performDoubleTapOnLike();
+                        performDoubleTapOnScreen();
                     } else if (label.equalsIgnoreCase("switch_camera")) {
                         Log.d(TAG, "About to switch camera");
                         switchCamera();
+                    } else if (label.equalsIgnoreCase("next video")) {
+                        Log.d(TAG, "About to swipe up for next video");
+                        performSwipeUpToNextVideo();
+                    } else if (label.equalsIgnoreCase("click on that video")) {
+                        Log.d(TAG, "About to tap on current video");
+                        performTapOnCurrentVideo();
                     }
                     else {
                         clickNodeWithText(label);
@@ -176,160 +183,252 @@ public class ClickAccessibilityService extends AccessibilityService {
             return;
         }
 
+        // 1. Try exact text match
         List<AccessibilityNodeInfo> nodes = rootNode.findAccessibilityNodeInfosByText(text);
+        boolean clicked = tryClickNodes(nodes, text, "exact text");
+
+        // 2. Try partial text match
+        if (!clicked) {
+            Log.d(TAG, "No exact match found for '" + text + "'. Trying partial text match.");
+            clicked = findAndClickPartialText(rootNode, text.toLowerCase(Locale.ROOT));
+        }
+
+        // 3. Try content description match
+        if (!clicked) {
+            Log.d(TAG, "No partial text match. Trying content description match.");
+            clicked = findAndClickByContentDescription(rootNode, text.toLowerCase(Locale.ROOT));
+        }
+
+        // 4. Try class name heuristics (e.g., Button)
+        if (!clicked) {
+            Log.d(TAG, "No content description match. Trying class name heuristics.");
+            clicked = findAndClickByClassName(rootNode, "Button");
+        }
+
+        // 5. Log node tree for debugging
+        if (!clicked) {
+            Log.d(TAG, "No match found. Dumping node tree for debugging:");
+            dumpNodeTree(rootNode, 0);
+            FeedbackProvider.speakAndToast(this, "Couldn't click " + text);
+        }
+
         rootNode.recycle();
+    }
 
+    private boolean tryClickNodes(List<AccessibilityNodeInfo> nodes, String text, String matchType) {
         if (nodes != null && !nodes.isEmpty()) {
-            // Attempt to click the first visible and clickable node
             for (AccessibilityNodeInfo node : nodes) {
-                if (node != null && node.isVisibleToUser() && node.isClickable()) {
-                    Log.d(TAG, "Found a clickable node with text: " + text);
-                    node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                    node.recycle();
-                    return; // Clicked the first one, so we are done
+                if (node != null && node.isVisibleToUser()) {
+                    AccessibilityNodeInfo clickableNode = findClickableAncestor(node);
+                    if (clickableNode != null) {
+                        Log.d(TAG, "Clicking ancestor node for " + matchType + ": " + text);
+                        clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                        clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                        clickableNode.recycle();
+                        node.recycle();
+                        return true;
+                    }
                 }
-                if (node != null) {
-                    node.recycle();
-                }
+                if (node != null) node.recycle();
             }
         }
-
-        // If no direct match, try a more lenient search
-        findAndClickPartialText(getRootInActiveWindow(), text);
+        return false;
     }
 
-    private void findAndClickPartialText(AccessibilityNodeInfo parentNode, String text) {
-        if (parentNode == null) return;
-
-        for (int i = 0; i < parentNode.getChildCount(); i++) {
-            AccessibilityNodeInfo childNode = parentNode.getChild(i);
-            if (childNode == null) continue;
-
-            CharSequence nodeText = childNode.getText();
-            if (nodeText != null && nodeText.toString().toLowerCase(Locale.ROOT).contains(text.toLowerCase(Locale.ROOT))) {
-                if (childNode.isClickable() && childNode.isVisibleToUser()) {
-                    Log.d(TAG, "Found a clickable node with partial text: " + text);
-                    childNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-                    childNode.recycle();
-                    parentNode.recycle();
-                    return;
-                }
+    private boolean findAndClickPartialText(AccessibilityNodeInfo node, String text) {
+        if (node == null) return false;
+        boolean clicked = false;
+        CharSequence nodeText = node.getText();
+        if (nodeText != null && nodeText.toString().toLowerCase(Locale.ROOT).contains(text)) {
+            AccessibilityNodeInfo clickableNode = findClickableAncestor(node);
+            if (clickableNode != null) {
+                Log.d(TAG, "Clicking ancestor node for partial text: " + text);
+                clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                clickableNode.recycle();
+                clicked = true;
             }
-            // Recurse
-            findAndClickPartialText(childNode, text);
-            childNode.recycle();
+        }
+        for (int i = 0; i < node.getChildCount() && !clicked; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                clicked = findAndClickPartialText(child, text) || clicked;
+                child.recycle();
+            }
+        }
+        return clicked;
+    }
+
+    private boolean findAndClickByContentDescription(AccessibilityNodeInfo node, String text) {
+        if (node == null) return false;
+        boolean clicked = false;
+        CharSequence desc = node.getContentDescription();
+        if (desc != null && desc.toString().toLowerCase(Locale.ROOT).contains(text)) {
+            AccessibilityNodeInfo clickableNode = findClickableAncestor(node);
+            if (clickableNode != null) {
+                Log.d(TAG, "Clicking ancestor node for content description: " + text);
+                clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                clickableNode.recycle();
+                clicked = true;
+            }
+        }
+        for (int i = 0; i < node.getChildCount() && !clicked; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                clicked = findAndClickByContentDescription(child, text) || clicked;
+                child.recycle();
+            }
+        }
+        return clicked;
+    }
+
+    private boolean findAndClickByClassName(AccessibilityNodeInfo node, String className) {
+        if (node == null) return false;
+        boolean clicked = false;
+        if (node.getClassName() != null && node.getClassName().toString().contains(className)) {
+            AccessibilityNodeInfo clickableNode = findClickableAncestor(node);
+            if (clickableNode != null) {
+                Log.d(TAG, "Clicking ancestor node for class name: " + className);
+                clickableNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                clickableNode.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                clickableNode.recycle();
+                clicked = true;
+            }
+        }
+        for (int i = 0; i < node.getChildCount() && !clicked; i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                clicked = findAndClickByClassName(child, className) || clicked;
+                child.recycle();
+            }
+        }
+        return clicked;
+    }
+
+    private void dumpNodeTree(AccessibilityNodeInfo node, int depth) {
+        if (node == null) return;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < depth; i++) sb.append("  ");
+        sb.append("[").append(node.getClassName());
+        if (node.getText() != null) sb.append(" text=\"").append(node.getText()).append("\"");
+        if (node.getContentDescription() != null) sb.append(" desc=\"").append(node.getContentDescription()).append("\"");
+        sb.append(" clickable=").append(node.isClickable());
+        sb.append(" visible=").append(node.isVisibleToUser());
+        sb.append("]");
+        Log.d(TAG, sb.toString());
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) {
+                dumpNodeTree(child, depth + 1);
+                child.recycle();
+            }
         }
     }
 
-    private void performDoubleTapOnLike() {
-        Log.d(TAG, "performDoubleTapOnLike called");
-        
-        // Get screen dimensions
-        android.util.DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
-        int screenWidth = displayMetrics.widthPixels;
-        int screenHeight = displayMetrics.heightPixels;
-        
-        // Calculate center coordinates
-        int centerX = screenWidth / 2;
-        int centerY = screenHeight / 2;
-        
-        Log.d(TAG, "Screen dimensions: " + screenWidth + "x" + screenHeight);
-        Log.d(TAG, "Performing double-tap at center of screen: (" + centerX + ", " + centerY + ")");
-        
-        // Perform first tap
-        Log.d(TAG, "Performing first tap");
-        performTapGesture(centerX, centerY);
-        
-        // Small delay to mimic human double-tap
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            // Perform second tap
-            Log.d(TAG, "Performing second tap");
-            performTapGesture(centerX, centerY);
-            Log.d(TAG, "Double-tap completed");
-        }, 200); // 200 ms delay
+    private AccessibilityNodeInfo findClickableAncestor(AccessibilityNodeInfo node) {
+        AccessibilityNodeInfo current = node;
+        while (current != null) {
+            if (current.isClickable()) {
+                return current;
+            }
+            AccessibilityNodeInfo parent = current.getParent();
+            if (current != node) current.recycle();
+            current = parent;
+        }
+        return null;
     }
-    
-    private void performTapGesture(int x, int y) {
-        Log.d(TAG, "performTapGesture called at (" + x + ", " + y + ")");
-        Path path = new Path();
-        path.moveTo(x, y);
-        
+
+    private void performDoubleTapOnScreen() {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        int x = width / 2;
+        int y = height / 2;
+
+        Path tapPath = new Path();
+        tapPath.moveTo(x, y);
+
+        GestureDescription.StrokeDescription firstTap = new GestureDescription.StrokeDescription(tapPath, 0, 50);
+        GestureDescription.StrokeDescription secondTap = new GestureDescription.StrokeDescription(tapPath, 150, 50);
+
         GestureDescription.Builder builder = new GestureDescription.Builder();
-        builder.addStroke(new GestureDescription.StrokeDescription(path, 0, 100));
-        
-        boolean result = dispatchGesture(builder.build(), new GestureResultCallback() {
+        builder.addStroke(firstTap);
+        builder.addStroke(secondTap);
+
+        dispatchGesture(builder.build(), new GestureResultCallback() {
             @Override
             public void onCompleted(GestureDescription gestureDescription) {
-                Log.d(TAG, "Tap gesture completed successfully");
+                super.onCompleted(gestureDescription);
+                Log.d(TAG, "Double-tap gesture completed.");
+                FeedbackProvider.speakAndToast(ClickAccessibilityService.this, "Double tap performed");
             }
-            
             @Override
             public void onCancelled(GestureDescription gestureDescription) {
-                Log.e(TAG, "Tap gesture was cancelled");
+                super.onCancelled(gestureDescription);
+                Log.w(TAG, "Double-tap gesture cancelled.");
+                FeedbackProvider.speakAndToast(ClickAccessibilityService.this, "Couldn't perform double tap");
             }
         }, null);
-        
-        Log.d(TAG, "dispatchGesture result: " + result);
     }
 
     private void performScroll() {
-        // Get the screen dimensions
-        int height = getResources().getDisplayMetrics().heightPixels;
-        int width = getResources().getDisplayMetrics().widthPixels;
-
-        // Define the scroll path
-        Path swipePath = new Path();
-        swipePath.moveTo(width / 2, height * 0.8f); // Start near the bottom
-        swipePath.lineTo(width / 2, height * 0.2f); // End near the top
-
-        // Create the gesture
-        GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
-        gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 200)); // 200ms duration
-
-        // Dispatch the gesture
-        dispatchGesture(gestureBuilder.build(), new GestureResultCallback() {
-            @Override
-            public void onCompleted(GestureDescription gestureDescription) {
-                super.onCompleted(gestureDescription);
-                Log.d(TAG, "Scroll gesture completed.");
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) {
+            Log.e(TAG, "Root node is null. Cannot perform scroll.");
+            FeedbackProvider.speakAndToast(this, "I can't see the screen right now.");
+            return;
+        }
+        AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
+        if (scrollable != null) {
+            Log.d(TAG, "Found scrollable node. Performing scroll forward.");
+            boolean result = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            scrollable.recycle();
+            if (result) {
+                FeedbackProvider.speakAndToast(this, "Scrolled down");
+            } else {
+                FeedbackProvider.speakAndToast(this, "Can't scroll down anymore");
             }
-
-            @Override
-            public void onCancelled(GestureDescription gestureDescription) {
-                super.onCancelled(gestureDescription);
-                Log.w(TAG, "Scroll gesture cancelled.");
-            }
-        }, null);
+        } else {
+            FeedbackProvider.speakAndToast(this, "No scrollable area found");
+        }
+        rootNode.recycle();
     }
 
     private void performScrollUp() {
-        // Get the screen dimensions
-        int height = getResources().getDisplayMetrics().heightPixels;
-        int width = getResources().getDisplayMetrics().widthPixels;
-
-        // Define the scroll path (swipe down to scroll up)
-        Path swipePath = new Path();
-        swipePath.moveTo(width / 2, height * 0.2f); // Start near the top
-        swipePath.lineTo(width / 2, height * 0.8f); // End near the bottom
-
-        // Create the gesture
-        GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
-        gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 200)); // 200ms duration
-
-        // Dispatch the gesture
-        dispatchGesture(gestureBuilder.build(), new GestureResultCallback() {
-            @Override
-            public void onCompleted(GestureDescription gestureDescription) {
-                super.onCompleted(gestureDescription);
-                Log.d(TAG, "Scroll up gesture completed.");
+        AccessibilityNodeInfo rootNode = getRootInActiveWindow();
+        if (rootNode == null) {
+            Log.e(TAG, "Root node is null. Cannot perform scroll up.");
+            FeedbackProvider.speakAndToast(this, "I can't see the screen right now.");
+            return;
+        }
+        AccessibilityNodeInfo scrollable = findScrollableNode(rootNode);
+        if (scrollable != null) {
+            Log.d(TAG, "Found scrollable node. Performing scroll backward.");
+            boolean result = scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+            scrollable.recycle();
+            if (result) {
+                FeedbackProvider.speakAndToast(this, "Scrolled up");
+            } else {
+                FeedbackProvider.speakAndToast(this, "Can't scroll up anymore");
             }
+        } else {
+            FeedbackProvider.speakAndToast(this, "No scrollable area found");
+        }
+        rootNode.recycle();
+    }
 
-            @Override
-            public void onCancelled(GestureDescription gestureDescription) {
-                super.onCancelled(gestureDescription);
-                Log.w(TAG, "Scroll up gesture cancelled.");
-            }
-        }, null);
+    private AccessibilityNodeInfo findScrollableNode(AccessibilityNodeInfo node) {
+        if (node == null) return null;
+        if (node.isScrollable()) {
+            return AccessibilityNodeInfo.obtain(node);
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo result = findScrollableNode(child);
+            if (child != null) child.recycle();
+            if (result != null) return result;
+        }
+        return null;
     }
 
     private void switchCamera() {
@@ -534,16 +633,40 @@ public class ClickAccessibilityService extends AccessibilityService {
 
     private void performTypeText(String text) {
         AccessibilityNodeInfo node = getCurrentInputField();
+        if (node == null) {
+            // Try to focus the first editable field
+            node = focusFirstEditableField();
+        }
         if (node != null && node.isEditable()) {
             Log.d(TAG, "Performing TYPE_TEXT: " + text);
             Bundle args = new Bundle();
             args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            boolean setTextResult = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            if (!setTextResult) {
+                // Fallback: try clipboard paste
+                Log.d(TAG, "ACTION_SET_TEXT failed, trying clipboard paste fallback.");
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                android.content.ClipData clip = android.content.ClipData.newPlainText("label", text);
+                clipboard.setPrimaryClip(clip);
+                node.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+                node.performAction(AccessibilityNodeInfo.ACTION_PASTE);
+            }
             node.recycle();
         } else {
             Log.w(TAG, "No editable text field focused for TYPE_TEXT");
             FeedbackProvider.speakAndToast(this, "No text field is focused");
         }
+    }
+
+    private AccessibilityNodeInfo focusFirstEditableField() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        AccessibilityNodeInfo editable = findFirstEditText(root);
+        if (editable != null) {
+            editable.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+            return editable;
+        }
+        if (root != null) root.recycle();
+        return null;
     }
 
     private void performSelectAll() {
@@ -946,7 +1069,6 @@ public class ClickAccessibilityService extends AccessibilityService {
         return super.onGesture(gestureId);
     }
 
-    @Override
     public boolean onTouchEvent(android.view.MotionEvent event) {
         if (OpenCameraHandler.isLearningSwitchButton() && event.getAction() == android.view.MotionEvent.ACTION_DOWN) {
             int x = (int) event.getRawX();
@@ -955,6 +1077,88 @@ public class ClickAccessibilityService extends AccessibilityService {
             FeedbackProvider.speakAndToast(this, "Switch button location saved.");
             return true;
         }
-        return super.onTouchEvent(event);
+        return false;
+    }
+
+    private void performSwipeUpToNextVideo() {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        int x = width / 2;
+        int startY = (int) (height * 0.75);
+        int endY = (int) (height * 0.25);
+
+        Path swipePath = new Path();
+        swipePath.moveTo(x, startY);
+        swipePath.lineTo(x, endY);
+
+        GestureDescription.StrokeDescription swipe = new GestureDescription.StrokeDescription(swipePath, 0, 300);
+
+        GestureDescription.Builder builder = new GestureDescription.Builder();
+        builder.addStroke(swipe);
+
+        dispatchGesture(builder.build(), new GestureResultCallback() {
+            @Override
+            public void onCompleted(GestureDescription gestureDescription) {
+                super.onCompleted(gestureDescription);
+                Log.d(TAG, "Swipe up gesture completed.");
+                FeedbackProvider.speakAndToast(ClickAccessibilityService.this, "Next video");
+            }
+            @Override
+            public void onCancelled(GestureDescription gestureDescription) {
+                super.onCancelled(gestureDescription);
+                Log.w(TAG, "Swipe up gesture cancelled.");
+                FeedbackProvider.speakAndToast(ClickAccessibilityService.this, "Couldn't go to next video");
+            }
+        }, null);
+    }
+
+    private void performTapOnCurrentVideo() {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        int x = width / 2;
+        int y = height / 2;
+
+        Path tapPath = new Path();
+        tapPath.moveTo(x, y);
+
+        GestureDescription.StrokeDescription tap = new GestureDescription.StrokeDescription(tapPath, 0, 50);
+
+        GestureDescription.Builder builder = new GestureDescription.Builder();
+        builder.addStroke(tap);
+
+        dispatchGesture(builder.build(), new GestureResultCallback() {
+            @Override
+            public void onCompleted(GestureDescription gestureDescription) {
+                super.onCompleted(gestureDescription);
+                Log.d(TAG, "Tap on video completed.");
+                FeedbackProvider.speakAndToast(ClickAccessibilityService.this, "Clicked on video");
+            }
+            @Override
+            public void onCancelled(GestureDescription gestureDescription) {
+                super.onCancelled(gestureDescription);
+                Log.w(TAG, "Tap on video cancelled.");
+                FeedbackProvider.speakAndToast(ClickAccessibilityService.this, "Couldn't click on video");
+            }
+        }, null);
+    }
+
+    private void performTapGesture(int x, int y) {
+        Path path = new Path();
+        path.moveTo(x, y);
+        GestureDescription.StrokeDescription tap = new GestureDescription.StrokeDescription(path, 0, 50);
+        GestureDescription.Builder builder = new GestureDescription.Builder();
+        builder.addStroke(tap);
+        dispatchGesture(builder.build(), new GestureResultCallback() {
+            @Override
+            public void onCompleted(GestureDescription gestureDescription) {
+                super.onCompleted(gestureDescription);
+                Log.d(TAG, "Tap gesture completed at (" + x + ", " + y + ")");
+            }
+            @Override
+            public void onCancelled(GestureDescription gestureDescription) {
+                super.onCancelled(gestureDescription);
+                Log.w(TAG, "Tap gesture cancelled at (" + x + ", " + y + ")");
+            }
+        }, null);
     }
 } 

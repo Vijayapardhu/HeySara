@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:background="#FFF"
+    android:padding="24dp">
+
+    <!-- Voice wave bars -->
+    <com.mvp.sara.VoiceBarsView
+        android:foreground="@color/orange"
+        android:id="@+id/voice_lines"
+        android:layout_width="wrap_content"
+        android:layout_height="100dp"
+        android:layout_gravity="center"
+        android:visibility="invisible" />
+
+    <!-- Orange circle background for QR code -->
+    <FrameLayout
+        android:layout_width="320dp"
+        android:layout_height="320dp"
+        android:layout_gravity="center"
+        android:layout_marginBottom="32dp">
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/qr_orange_circle_bg" />
+        <ImageView
+            android:id="@+id/qrImageView"
+            android:layout_width="240dp"
+            android:layout_height="240dp"
+            android:layout_gravity="center"
+            android:contentDescription="QR Code" />
+    </FrameLayout>
+
+    <Button
+        android:id="@+id/shareMoreButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Share More Files"
+        android:backgroundTint="@color/orange"
+        android:textColor="#FFF"
+        android:paddingLeft="32dp"
+        android:paddingRight="32dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/orange_rounded_button" />
+
+    <Button
+        android:id="@+id/selectFileButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Select File"
+        android:backgroundTint="@color/orange"
+        android:textColor="#FFF"
+        android:paddingLeft="32dp"
+        android:paddingRight="32dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone"
+        android:background="@drawable/orange_rounded_button" />
+</LinearLayout> 

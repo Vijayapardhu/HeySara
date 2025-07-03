@@ -70,7 +70,7 @@ public class ScreenshotService extends Service {
                     width, height, dpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                     imageReader.getSurface(), null, handler);
 
-            handler.postDelayed(this::captureAndSave, 500);
+            handler.postDelayed(this::captureAndSave, 1000);
         }
         return START_NOT_STICKY;
     }
@@ -96,19 +96,29 @@ public class ScreenshotService extends Service {
     private void saveBitmap(Bitmap bitmap) {
         try {
             String fileName = "screenshot_" + System.currentTimeMillis() + ".png";
-            File directory = new File(Environment.getExternalStorageDirectory() + "/SaraScreenshots");
-            if (!directory.exists()) {
-                directory.mkdirs();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                values.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png");
+                values.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/SaraScreenshots");
+                android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    java.io.OutputStream out = getContentResolver().openOutputStream(uri);
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+                    out.close();
+                    handler.post(() -> Toast.makeText(this, "Screenshot saved to SaraScreenshots.", Toast.LENGTH_SHORT).show());
+                }
+            } else {
+                File directory = new File(Environment.getExternalStorageDirectory() + "/SaraScreenshots");
+                if (!directory.exists()) directory.mkdirs();
+                File imageFile = new File(directory, fileName);
+                FileOutputStream fos = new FileOutputStream(imageFile);
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                fos.flush();
+                fos.close();
+                MediaStore.Images.Media.insertImage(getContentResolver(), imageFile.getAbsolutePath(), fileName, "Screenshot taken by Sara");
+                handler.post(() -> Toast.makeText(this, "Screenshot saved to SaraScreenshots.", Toast.LENGTH_SHORT).show());
             }
-            File imageFile = new File(directory, fileName);
-
-            FileOutputStream fos = new FileOutputStream(imageFile);
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-            fos.flush();
-            fos.close();
-
-            MediaStore.Images.Media.insertImage(getContentResolver(), imageFile.getAbsolutePath(), fileName, "Screenshot taken by Sara");
-            handler.post(() -> Toast.makeText(this, "Screenshot saved to SaraScreenshots.", Toast.LENGTH_SHORT).show());
         } catch (Exception e) {
             e.printStackTrace();
             handler.post(() -> Toast.makeText(this, "Failed to save screenshot.", Toast.LENGTH_SHORT).show());

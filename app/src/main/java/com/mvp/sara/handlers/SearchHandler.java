@@ -22,6 +22,11 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import android.util.Base64;
+import org.json.JSONArray;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 
 public class SearchHandler implements CommandHandler, CommandRegistry.SuggestionProvider {
 
@@ -57,9 +62,6 @@ public class SearchHandler implements CommandHandler, CommandRegistry.Suggestion
             public void onReceive(Context context, Intent intent) {
                 if (searchTask != null && !searchTask.isDone()) {
                     searchTask.cancel(true);
-                    if (connection != null) {
-                        connection.disconnect();
-                    }
                     FeedbackProvider.speakAndToast(context, "Search cancelled.");
                 }
             }
@@ -69,18 +71,20 @@ public class SearchHandler implements CommandHandler, CommandRegistry.Suggestion
         searchTask = executor.submit(() -> {
             try {
                 String apiKey = BuildConfig.GEMINI_API_KEY;
-                if (apiKey == null || apiKey.isEmpty() || apiKey.equals("AIzaSyA5Czfapq60ZbIWO-5UjZVtIlHAWefHUl4") || apiKey.equals("AIzaSyA5Czfapq60ZbIWO-5UjZVtIlHAWefHUl4")) {
-                    FeedbackProvider.speakAndToast(context, "The search feature is not configured. Please add your API key.");
-                    return;
-                }
-                
-                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey);
-                connection = (HttpURLConnection) url.openConnection();
+                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("POST");
                 connection.setRequestProperty("Content-Type", "application/json");
                 connection.setDoOutput(true);
 
-                String jsonInputString = "{\"contents\":[{\"parts\":[{\"text\":\"" + query + "\"}]}]}";
+                String jsonInputString = "{" +
+                        "\"contents\":[{" +
+                        "  \"parts\":[{" +
+                        "    \"text\": \"" + query.replace("\"", "\\\"") + "\"" +
+                        "  }]" +
+                        "}]," +
+                        "}";
+
                 try (OutputStream os = connection.getOutputStream()) {
                     os.write(jsonInputString.getBytes("utf-8"));
                 }
@@ -92,13 +96,24 @@ public class SearchHandler implements CommandHandler, CommandRegistry.Suggestion
                         response.append(responseLine.trim());
                     }
                 }
-                
+
                 JSONObject jsonResponse = new JSONObject(response.toString());
-                String resultText = jsonResponse.getJSONArray("candidates")
-                                                .getJSONObject(0).getJSONObject("content")
-                                                .getJSONArray("parts").getJSONObject(0).getString("text");
-                FeedbackProvider.speakAndToast(context, resultText);
-                
+                JSONArray parts = jsonResponse.getJSONArray("candidates")
+                        .getJSONObject(0).getJSONObject("content")
+                        .getJSONArray("parts");
+                String resultText = null;
+                for (int i = 0; i < parts.length(); i++) {
+                    JSONObject part = parts.getJSONObject(i);
+                    if (part.has("text")) {
+                        resultText = part.getString("text");
+                        break;
+                    }
+                }
+                if (resultText != null) {
+                    FeedbackProvider.speakAndToast(context, resultText);
+                } else {
+                    FeedbackProvider.speakAndToast(context, "Sorry, I couldn't get a result for that search.");
+                }
             } catch (SocketException e) {
                 android.util.Log.w("SearchHandler", "Search cancelled by user.", e);
             } catch (Exception e) {
@@ -112,9 +127,6 @@ public class SearchHandler implements CommandHandler, CommandRegistry.Suggestion
                 // Hide the stop button and unregister the receiver
                 context.sendBroadcast(new Intent(ACTION_HIDE_STOP_BUTTON));
                 context.unregisterReceiver(stopSearchReceiver);
-                if (connection != null) {
-                    connection.disconnect();
-                }
             }
         });
     }

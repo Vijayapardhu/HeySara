@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Sara Voice Assistant</string>
+    <string name="app_name">Sara</string>
     <string name="start_sara">Start Sara</string>
     <string name="sara_ready">Sara is ready to help you</string>
     <string name="wake_word">Hey Sara</string>
