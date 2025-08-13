@@ -92,29 +92,37 @@ public class WriteHandler implements CommandHandler, CommandRegistry.SuggestionP
     }
 
     private String generatePrompt(String contentType, String originalCommand) {
+        String basePrompt;
         switch (contentType) {
             case "code":
-                return "If no specific programming language is mentioned, use Python. " +
-                        "don't Include brief comments explaining what the code does.";
+                basePrompt = "If no specific programming language is mentioned, use Python. " +
+                             "Include brief comments explaining what the code does. " +
+                             "The user's request is: ";
+                break;
 
             case "email":
-                return "Write a professional email. Keep it polite, clear, and concise. " +
-                        "Include a subject line, greeting, main content, and closing. " +
-                        "Make it appropriate for a business context.";
+                basePrompt = "Write a professional email based on the following request. " +
+                             "Keep it polite, clear, and concise. Include a subject line, " +
+                             "greeting, main content, and closing. The user's request is: ";
+                break;
 
             case "response":
             case "reply":
-                return "Write a thoughtful response. Be polite and address the main points. " +
-                        "Keep it clear and concise.";
+                basePrompt = "Write a thoughtful response to the following. " +
+                             "Be polite and address the main points. Keep it clear and concise. " +
+                             "The user's request is: ";
+                break;
 
             default:
-                // For specific requests, use the original command
                 if (!contentType.equals("unknown")) {
-                    return "Write " + contentType + ". Keep it clear, concise, and helpful.";
+                    basePrompt = "Write " + contentType + " based on this request. Keep it clear, concise, and helpful. " +
+                                 "The user's request is: ";
                 } else {
-                    return "Write helpful text content based on this request: " + originalCommand;
+                    basePrompt = "Write helpful text content based on this request: ";
                 }
+                break;
         }
+        return basePrompt + originalCommand;
     }
 
     private void getApiKeyFromFirebase(String prompt, Context context, String contentType) {
