@@ -20,15 +20,7 @@ public class WifiHandler implements CommandHandler, CommandRegistry.SuggestionPr
             "turn on wifi",
             "turn off wifi",
             "enable wi-fi",
-            "disable wi-fi",
-            "turn on mobile data",
-            "turn off mobile data",
-            "enable mobile data",
-            "disable mobile data",
-            "turn on hotspot",
-            "turn off hotspot",
-            "enable hotspot",
-            "disable hotspot"
+            "disable wi-fi"
     );
 
     @Override
@@ -40,33 +32,16 @@ public class WifiHandler implements CommandHandler, CommandRegistry.SuggestionPr
             return false;
         }
         
-        return (lowerCmd.contains("turn on") || lowerCmd.contains("turn off") || 
+        return (lowerCmd.contains("turn on") || lowerCmd.contains("turn off") ||
                 lowerCmd.contains("enable") || lowerCmd.contains("disable")) &&
-               (lowerCmd.contains("wifi") || lowerCmd.contains("wi-fi") || 
-                lowerCmd.contains("mobile data") || lowerCmd.contains("hotspot"));
+               (lowerCmd.contains("wifi") || lowerCmd.contains("wi-fi"));
     }
 
     @Override
     public void handle(Context context, String command) {
-        String lowerCmd = command.toLowerCase();
-        boolean isWifi = lowerCmd.contains("wifi") || lowerCmd.contains("wi-fi");
-        boolean isMobileData = lowerCmd.contains("mobile data");
-        boolean isHotspot = lowerCmd.contains("hotspot");
-        
-        // Use the advanced accessibility service methods for all toggles
-        if (isWifi) {
-            // Send broadcast to trigger advanced WiFi toggle
-            Intent wifiIntent = new Intent("com.mvp.sarah.ACTION_TOGGLE_WIFI_ADVANCED");
-            context.sendBroadcast(wifiIntent);
-        } else if (isMobileData) {
-            // Send broadcast to trigger advanced mobile data toggle
-            Intent mobileDataIntent = new Intent("com.mvp.sarah.ACTION_TOGGLE_MOBILE_DATA_ADVANCED");
-            context.sendBroadcast(mobileDataIntent);
-        } else if (isHotspot) {
-            // Send broadcast to trigger advanced hotspot toggle
-            Intent hotspotIntent = new Intent("com.mvp.sarah.ACTION_TOGGLE_HOTSPOT_ADVANCED");
-            context.sendBroadcast(hotspotIntent);
-        }
+        // Send broadcast to trigger advanced WiFi toggle
+        Intent wifiIntent = new Intent("com.mvp.sarah.ACTION_TOGGLE_WIFI_ADVANCED");
+        context.sendBroadcast(wifiIntent);
     }
 
     @Override
