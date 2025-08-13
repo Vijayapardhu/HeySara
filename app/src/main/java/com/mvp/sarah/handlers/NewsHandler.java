@@ -4,7 +4,9 @@ import android.content.Context;
 import android.os.AsyncTask;
 import com.mvp.sarah.CommandHandler;
 import com.mvp.sarah.CommandRegistry;
+import android.util.Log;
 import com.mvp.sarah.FeedbackProvider;
+import com.google.firebase.firestore.FirebaseFirestore;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.BufferedReader;
@@ -15,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class NewsHandler implements CommandHandler, CommandRegistry.SuggestionProvider {
+    private static final String TAG = "NewsHandler";
     private static final List<String> COMMANDS = Arrays.asList(
             "news",
             "live news",
@@ -23,27 +26,64 @@ public class NewsHandler implements CommandHandler, CommandRegistry.SuggestionPr
             "read the news"
     );
 
+    private String apiKey = null;
+    private boolean isFetchingKey = false;
+    private final Object keyLock = new Object();
+
     @Override
     public boolean canHandle(String command) {
         String lower = command.toLowerCase();
         return lower.contains("news") || lower.contains("headlines");
     }
 
+    private void fetchApiKey(Runnable onReady) {
+        synchronized (keyLock) {
+            if (apiKey != null) {
+                onReady.run();
+                return;
+            }
+            if (isFetchingKey) return;
+            isFetchingKey = true;
+        }
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
+        db.collection("app_config").document("news").get()
+            .addOnSuccessListener(document -> {
+                if (document.exists() && document.contains("api_key")) {
+                    apiKey = document.getString("api_key");
+                    Log.d(TAG, "News API key fetched successfully.");
+                } else {
+                    Log.e(TAG, "News API key not found in Firebase.");
+                }
+                synchronized (keyLock) { isFetchingKey = false; }
+                onReady.run();
+            })
+            .addOnFailureListener(e -> {
+                Log.e(TAG, "Failed to fetch News API key from Firebase.", e);
+                synchronized (keyLock) { isFetchingKey = false; }
+                onReady.run();
+            });
+    }
+
     @Override
     public void handle(Context context, String command) {
         FeedbackProvider.speakAndToast(context, "Fetching the latest news headlines...");
-        new FetchNewsTask(context).execute();
+        fetchApiKey(() -> {
+            if (apiKey == null || apiKey.isEmpty()) {
+                FeedbackProvider.speakAndToast(context, "Sorry, the news service is not configured.");
+                return;
+            }
+            new FetchNewsTask(context).execute();
+        });
     }
 
-    private static class FetchNewsTask extends AsyncTask<Void, Void, String> {
+    private class FetchNewsTask extends AsyncTask<Void, Void, String> {
         private final Context context;
         FetchNewsTask(Context context) { this.context = context; }
 
         @Override
         protected String doInBackground(Void... voids) {
             try {
-                // You can replace this with your own API key and endpoint
-                String urlStr = "https://newsdata.io/api/1/news?apikey=pub_34508e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7&country=us&language=en&category=top";
+                String urlStr = "https://newsdata.io/api/1/news?apikey=" + apiKey + "&country=us&language=en&category=top";
                 URL url = new URL(urlStr);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
@@ -56,7 +96,10 @@ public class NewsHandler implements CommandHandler, CommandRegistry.SuggestionPr
                 reader.close();
                 JSONObject json = new JSONObject(response.toString());
                 JSONArray articles = json.optJSONArray("results");
-                if (articles == null || articles.length() == 0) return null;
+                if (articles == null || articles.length() == 0) {
+                    Log.d(TAG, "No news articles found in API response.");
+                    return null;
+                }
                 StringBuilder headlines = new StringBuilder();
                 for (int i = 0; i < Math.min(5, articles.length()); i++) {
                     JSONObject article = articles.getJSONObject(i);
@@ -67,6 +110,7 @@ public class NewsHandler implements CommandHandler, CommandRegistry.SuggestionPr
                 }
                 return headlines.toString().trim();
             } catch (Exception e) {
+                Log.e(TAG, "Error fetching news", e);
                 return null;
             }
         }
