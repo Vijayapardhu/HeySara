@@ -44,6 +44,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import com.mvp.sarah.data.MemoryManager;
 import com.mvp.sarah.handlers.SearchHandler;
 import android.content.SharedPreferences;
 import com.google.gson.Gson;
@@ -100,6 +101,7 @@ public class SaraVoiceService extends Service implements AudioManager.OnAudioFoc
         handler = new Handler(Looper.getMainLooper());
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         CommandRegistry.setCommandListener(this);
+        MemoryManager.getInstance(this);
         createNotificationChannel();
         startForeground(NOTIF_ID, buildNotification());
         startPorcupineListening();

@@ -6,17 +6,10 @@ import android.graphics.Bitmap;
 import android.os.Binder;
 import android.os.IBinder;
 import android.util.Log;
-import com.mvp.sarah.FeedbackProvider;
+import com.mvp.sarah.data.ApiClient;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import android.util.Base64;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.IOException;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 public class GeminiAnalysisService extends Service {
@@ -71,53 +64,45 @@ public class GeminiAnalysisService extends Service {
                     byte[] byteArray = byteArrayOutputStream.toByteArray();
                     String base64Image = Base64.encodeToString(byteArray, Base64.DEFAULT);
 
-                    String apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=" + apiKey;
-                    URL url = new URL(apiUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    conn.setDoOutput(true);
+                    String apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent";
+                    String innerPrompt = "Analyze the screen for a question and its options. Also, look for a submit button. " +
+                                       "Return a JSON object with the following structure: " +
+                                       "{\"action\": \"click\" or \"type\", \"x\": X_COORDINATE, \"y\": Y_COORDINATE, \"text\": \"ANSWER_TEXT\", \"submit_button\": {\"found\": true/false, \"x\": SUBMIT_X, \"y\": SUBMIT_Y}}. " +
+                                       "If no question is found, return null for the answer fields. If no submit button is found, set found to false.";
+                    String outerPrompt = "Please perform the following analysis and wrap the resulting JSON object in another JSON object with two fields: 'type' and 'response'. " +
+                                       "The 'type' should be 'image_analysis'. The 'response' should be the JSON object you generate from the analysis. " +
+                                       "The analysis task is: " + innerPrompt;
 
-                    String prompt = "Analyze the screen for a question and its options. Also, look for a submit button. " +
-                                  "Return a JSON object with the following structure: " +
-                                  "{\"action\": \"click\" or \"type\", \"x\": X_COORDINATE, \"y\": Y_COORDINATE, \"text\": \"ANSWER_TEXT\", \"submit_button\": {\"found\": true/false, \"x\": SUBMIT_X, \"y\": SUBMIT_Y}}. " +
-                                  "If no question is found, return null for the answer fields. If no submit button is found, set found to false.";
+                    String jsonPayload = "{\"contents\":[{\"parts\":[{\"text\":\"" + JSONObject.quote(outerPrompt) + "\"},{\"inline_data\":{\"mime_type\":\"image/jpeg\",\"data\":\"" + base64Image + "\"}}]}]}";
 
-                    String jsonInputString = "{\"contents\":[{\"parts\":[{\"text\":\"" + JSONObject.quote(prompt) + "\"},{\"inline_data\":{\"mime_type\":\"image/jpeg\",\"data\":\"" + base64Image + "\"}}]}]}";
+                    String response = ApiClient.makeApiCall(apiUrl, jsonPayload, apiKey, this);
 
-                    try (OutputStream os = conn.getOutputStream()) {
-                        byte[] input = jsonInputString.getBytes(StandardCharsets.UTF_8);
-                        os.write(input, 0, input.length);
-                    }
+                    if (response != null) {
+                        JSONObject outerResponse = new JSONObject(response);
+                        String innerJsonString = outerResponse.getJSONArray("candidates")
+                                                          .getJSONObject(0)
+                                                          .getJSONObject("content")
+                                                          .getJSONArray("parts")
+                                                          .getJSONObject(0)
+                                                          .getString("text");
 
-                    int responseCode = conn.getResponseCode();
-                    if (responseCode == HttpURLConnection.HTTP_OK) {
-                        try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                            StringBuilder response = new StringBuilder();
-                            String responseLine;
-                            while ((responseLine = br.readLine()) != null) {
-                                response.append(responseLine);
-                            }
-                            // Extract the JSON string from the response
-                            String jsonStr = response.toString();
-                            // A simple way to extract JSON from a string that might contain other text
-                            int startIndex = jsonStr.indexOf('{');
-                            int endIndex = jsonStr.lastIndexOf('}');
-                            if (startIndex != -1 && endIndex != -1) {
-                                String jsonResult = jsonStr.substring(startIndex, endIndex + 1);
-                                callback.onAnalysisComplete(jsonResult);
-                            } else {
-                                 callback.onAnalysisComplete(null); // Or handle error
-                            }
+                        JSONObject innerResponse = new JSONObject(innerJsonString);
+                        String type = innerResponse.optString("type", "unknown");
+
+                        if ("image_analysis".equals(type)) {
+                            String analysisResult = innerResponse.getJSONObject("response").toString();
+                            callback.onAnalysisComplete(analysisResult);
+                        } else {
+                            Log.w(TAG, "Received unexpected response type: " + type);
+                            callback.onAnalysisComplete(null);
                         }
                     } else {
-                        Log.e(TAG, "Error from API: " + responseCode);
+                        Log.e(TAG, "Failed to get response from API.");
                         callback.onAnalysisComplete(null);
                     }
-                    conn.disconnect();
-
                 } catch (Exception e) {
                     Log.e(TAG, "Error analyzing image", e);
+                    callback.onAnalysisComplete(null);
                 }
             }).start();
         });

@@ -3,6 +3,7 @@ package com.mvp.sarah;
 import android.content.Context;
 import android.util.Log;
 import android.widget.Toast;
+import com.mvp.sarah.data.MemoryManager;
 import com.mvp.sarah.handlers.CallAnswerHandler;
 import com.mvp.sarah.handlers.NoteHandler;
 import com.mvp.sarah.handlers.ReminderHandler;
@@ -74,6 +75,7 @@ public class CommandRegistry {
         }
 
         if (commandHandled) {
+            MemoryManager.getInstance(context).logAction(command);
             if (commandListener != null) {
                 commandListener.onCommandHandled(command);
             }
