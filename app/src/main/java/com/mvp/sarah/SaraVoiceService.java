@@ -223,16 +223,16 @@ public class SaraVoiceService extends Service implements AudioManager.OnAudioFoc
         String timeBasedGreeting = getTimeBasedGreeting();
         String userName = getUserName();
         
-        // Add some variety to the responses
+        // Enhanced responses with more helpful prompts
         String[] responses = {
-            "I'm here to help you. What can I do for you today?",
-            "I'm listening. How can I assist you?",
-            "I'm ready to help. What do you need?",
-            "I'm Sara, your personal assistant. How may I help you?",
-            "I'm here and ready to assist. What would you like me to do?",
-            "I'm listening. What can I help you with today?",
-            "I'm ready to help. What do you need assistance with?",
-            "I'm Sara, your voice assistant. How can I be of service?"
+            "I'm here to help you. You can ask me to call someone, send a message, open an app, or control your device. What would you like me to do?",
+            "I'm listening and ready to assist. Try saying 'call mom', 'open camera', or 'what's the weather'. How can I help?",
+            "I'm ready to help with calls, messages, apps, and more. What do you need assistance with today?",
+            "I'm Sara, your personal assistant. I can make calls, send texts, open apps, take screenshots, and much more. What would you like me to do?",
+            "I'm here and ready to assist with voice commands. You can say things like 'lock WhatsApp', 'play music', or 'turn on flashlight'. What would you like?",
+            "I'm listening for your voice commands. Try 'send message to John', 'open settings', or 'take a photo'. How can I help you today?",
+            "I'm ready to help with your device. I can control apps, make calls, send messages, and handle system settings. What do you need?",
+            "I'm Sara, your voice assistant. I understand commands like 'call contact', 'open app', 'send SMS', and many more. What can I do for you?"
         };
         
         // Get last used greeting to avoid repetition
@@ -435,6 +435,22 @@ public class SaraVoiceService extends Service implements AudioManager.OnAudioFoc
             @Override
             public void onError(int error) {
                 Log.e("SaraVoiceService", "Bubble recognition error: " + getErrorText(error));
+                
+                // Provide helpful feedback for common errors
+                String errorMessage = getErrorText(error);
+                if (error == SpeechRecognizer.ERROR_NO_MATCH) {
+                    errorMessage = "I didn't catch that. Try speaking clearly or say 'Hey Sara' to start again.";
+                } else if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    errorMessage = "I didn't hear anything. Say 'Hey Sara' when you're ready to try again.";
+                } else if (error == SpeechRecognizer.ERROR_NETWORK) {
+                    errorMessage = "Network issue. I'll try to help with offline commands, or check your connection.";
+                }
+                
+                // Only show error message for certain error types, not for normal timeouts
+                if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT && error != SpeechRecognizer.ERROR_NO_MATCH) {
+                    FeedbackProvider.speakAndToast(SaraVoiceService.this, errorMessage);
+                }
+                
                 removeBubbleOverlay(); // Always reset state, even if overlay is null
             }
             @Override
@@ -467,7 +483,44 @@ public class SaraVoiceService extends Service implements AudioManager.OnAudioFoc
             View bubbleContainer = bubbleOverlayView.findViewById(R.id.bubble_container);
             View glowEffect = bubbleOverlayView.findViewById(R.id.glow_effect);
             VoiceBarsView voiceLines = bubbleOverlayView.findViewById(R.id.voice_lines);
+            
+            // Add a subtle prompt after greeting to encourage interaction
+            handler.postDelayed(() -> {
+                if (isBubbleListening) {
+                    // Provide contextual hints based on time of day or user patterns
+                    String contextualPrompt = getContextualPrompt();
+                    if (!contextualPrompt.isEmpty()) {
+                        FeedbackProvider.speakAndToast(this, contextualPrompt);
+                    }
+                }
+            }, 8000); // Wait 8 seconds after greeting before giving hint
+            
             startBubbleListening(bubbleContainer, glowEffect, voiceLines);
+        }
+    }
+    
+    private String getContextualPrompt() {
+        java.util.Calendar calendar = java.util.Calendar.getInstance();
+        int hour = calendar.get(java.util.Calendar.HOUR_OF_DAY);
+        
+        // Time-based contextual prompts
+        if (hour >= 6 && hour < 9) {
+            return "Need help with your morning routine? I can check weather, read messages, or set reminders.";
+        } else if (hour >= 12 && hour < 14) {
+            return "Lunch time! I can help you call for food delivery, check your schedule, or send messages.";
+        } else if (hour >= 17 && hour < 20) {
+            return "Evening time! I can help you call family, check traffic, or control your smart home.";
+        } else if (hour >= 21 || hour < 6) {
+            return "Getting late! I can set alarms, turn on do not disturb, or help you wind down.";
+        } else {
+            // General prompts for other times
+            String[] generalPrompts = {
+                "I'm still listening. Try a command like 'open camera' or 'call someone'.",
+                "Need help? Say something like 'send message' or 'what's the weather'.",
+                "I can help with calls, messages, apps, and device controls. What would you like?",
+                "Still here! Try commands like 'take screenshot', 'play music', or 'lock an app'."
+            };
+            return generalPrompts[(int) (Math.random() * generalPrompts.length)];
         }
     }
 
@@ -1096,17 +1149,34 @@ public class SaraVoiceService extends Service implements AudioManager.OnAudioFoc
     private final PorcupineManagerCallback porcupineManagerCallback = new PorcupineManagerCallback() {
         @Override
         public void invoke(int keywordIndex) {
-            Log.d("Porcupine", "Wake word detected!");
-            if (isPausedForCommand) return;
+            Log.d("Porcupine", "Wake word detected! Keyword index: " + keywordIndex);
+            
+            // Prevent multiple activations in quick succession
+            if (isPausedForCommand || isBubbleListening) {
+                Log.d("Porcupine", "Already processing command, ignoring wake word");
+                return;
+            }
+            
             isPausedForCommand = true;
+            
+            // Stop wake word detection temporarily
             try {
-                porcupineManager.stop();
+                if (porcupineManager != null) {
+                    porcupineManager.stop();
+                    Log.d("Porcupine", "Porcupine stopped for command processing");
+                }
             } catch (PorcupineException e) {
                 Log.e("Porcupine", "Failed to stop porcupine: " + e.getMessage());
             }
-            // Wake word detected, now greet the user and show overlay
+            
+            // Play activation sound and provide immediate feedback
             sendBroadcast(new Intent("com.mvp.sarah.ACTION_PLAY_BEEP"));
-            greetUserAndStartListening();
+            
+            // Add slight delay to ensure audio focus is properly handled
+            handler.postDelayed(() -> {
+                Log.d("Porcupine", "Starting greeting and listening sequence");
+                greetUserAndStartListening();
+            }, 100);
         }
     };
 }
